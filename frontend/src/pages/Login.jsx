@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Container, Row, Col, Card, Form, Button, Alert } from 'react-bootstrap'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
 const Login = () => {
@@ -13,6 +13,7 @@ const Login = () => {
   
   const { login } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
 
   const handleChange = (e) => {
     setFormData({
@@ -29,7 +30,9 @@ const Login = () => {
     const result = await login(formData)
     
     if (result.success) {
-      navigate('/dashboard')
+      // Redirect to intended page or dashboard
+      const redirectTo = searchParams.get('redirect') || '/dashboard'
+      navigate(redirectTo)
     } else {
       setError(result.error)
     }

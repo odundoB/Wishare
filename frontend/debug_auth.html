@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Auth & API</title>
+</head>
+<body>
+    <h1>Debug Authentication & API Connection</h1>
+    <div id="results"></div>
+
+    <script>
+        async function checkAPI() {
+            const resultsDiv = document.getElementById('results');
+            
+            try {
+                // Test backend connection
+                resultsDiv.innerHTML += '<p>Testing backend connection...</p>';
+                const response = await fetch('http://localhost:8000/api/chat/', {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                
+                resultsDiv.innerHTML += `<p>Backend response status: ${response.status}</p>`;
+                const data = await response.text();
+                resultsDiv.innerHTML += `<p>Backend response: ${data}</p>`;
+                
+                // Check localStorage
+                const token = localStorage.getItem('access_token');
+                resultsDiv.innerHTML += `<p>Local storage token: ${token ? 'Present' : 'Missing'}</p>`;
+                
+                if (token) {
+                    // Test with token
+                    resultsDiv.innerHTML += '<p>Testing API with token...</p>';
+                    const authResponse = await fetch('http://localhost:8000/api/chat/', {
+                        method: 'GET',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+                    
+                    resultsDiv.innerHTML += `<p>Authenticated response status: ${authResponse.status}</p>`;
+                    const authData = await authResponse.text();
+                    resultsDiv.innerHTML += `<p>Authenticated response: ${authData}</p>`;
+                }
+                
+            } catch (error) {
+                resultsDiv.innerHTML += `<p>Error: ${error.message}</p>`;
+                console.error('Debug error:', error);
+            }
+        }
+        
+        checkAPI();
+    </script>
+</body>
+</html>

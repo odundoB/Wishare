@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { tokenManager } from '../utils/tokenManager'
 
 // Create reusable axios instance with automatic backend connection
 const api = axios.create({
@@ -30,29 +31,72 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // Don't try to refresh token for the refresh endpoint itself to prevent infinite loops
+    if (error.response?.status === 401 && !originalRequest._retry && !originalRequest.url?.includes('/token/refresh/')) {
       originalRequest._retry = true
 
-      try {
-        const refreshToken = localStorage.getItem('refresh_token')
-        if (refreshToken) {
-          const response = await api.post('/token/refresh/', {
+      // Check if we have valid refresh token before attempting refresh
+      const refreshToken = localStorage.getItem('refresh_token')
+      const tokensInfo = tokenManager.getTokensInfo()
+      
+      console.log('🔄 401 Error - Token refresh attempt:', tokensInfo)
+      
+      if (refreshToken && !tokensInfo.refreshExpired) {
+        try {
+          // Create a new axios instance to avoid interceptor loops
+          const refreshResponse = await axios.post('http://localhost:8000/api/token/refresh/', {
             refresh: refreshToken,
+          }, {
+            headers: {
+              'Content-Type': 'application/json',
+            }
           })
 
-          const { access } = response.data
+          const { access, refresh: newRefresh } = refreshResponse.data
           localStorage.setItem('access_token', access)
+          
+          // Update refresh token if a new one was provided (token rotation)
+          if (newRefresh) {
+            localStorage.setItem('refresh_token', newRefresh)
+            console.log('🔄 Tokens refreshed successfully with rotation')
+          } else {
+            console.log('🔄 Access token refreshed successfully')
+          }
           
           // Retry the original request with new token
           originalRequest.headers.Authorization = `Bearer ${access}`
           return api(originalRequest)
+          
+        } catch (refreshError) {
+          console.log('❌ Token refresh failed:', refreshError.response?.status, refreshError.response?.data)
+          
+          // Clear invalid tokens
+          tokenManager.clearTokens()
+          
+          // Only redirect if we're not already on the login page
+          if (window.location.pathname !== '/' && window.location.pathname !== '/login') {
+            console.log('🔀 Redirecting to login due to refresh failure')
+            window.location.href = '/'
+          }
+          
+          return Promise.reject(refreshError)
         }
-      } catch (refreshError) {
-        // Refresh failed, redirect to login
-        localStorage.removeItem('access_token')
-        localStorage.removeItem('refresh_token')
-        window.location.href = '/'
-        return Promise.reject(refreshError)
+      } else {
+        console.log('❌ No valid refresh token available:', {
+          hasRefresh: !!refreshToken,
+          refreshExpired: tokensInfo.refreshExpired
+        })
+        
+        // Clear invalid tokens
+        tokenManager.clearTokens()
+        
+        // Only redirect if we're not already on the login page
+        if (window.location.pathname !== '/' && window.location.pathname !== '/login') {
+          console.log('🔀 Redirecting to login due to invalid refresh token')
+          window.location.href = '/'
+        }
+        
+        return Promise.reject(error)
       }
     }
 

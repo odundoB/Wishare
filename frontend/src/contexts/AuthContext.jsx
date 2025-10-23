@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
 import { authAPI } from '../services/api'
 import { registerUser, loginUser, logoutUser, getProfile, updateProfile } from '../services/users'
+import { tokenManager } from '../utils/tokenManager'
 
 const AuthContext = createContext()
 
@@ -16,29 +17,60 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [token, setToken] = useState(null)
 
   // Check if user is authenticated on app load
   useEffect(() => {
     const checkAuth = async () => {
-      const token = localStorage.getItem('access_token')
-      if (token) {
-        try {
-          // Verify token is still valid
-          await authAPI.verify(token)
-          
-          // Get user profile
-          const response = await getProfile()
-          setUser(response.data)
-          setIsAuthenticated(true)
-        } catch (error) {
-          // Token is invalid, clear storage
-          localStorage.removeItem('access_token')
-          localStorage.removeItem('refresh_token')
+      console.log('🔐 AuthContext - Starting authentication check...');
+      const tokensInfo = tokenManager.getTokensInfo()
+      console.log('🔐 AuthContext - Tokens info:', tokensInfo);
+      
+      // Add timeout to prevent infinite loading
+      const timeout = setTimeout(() => {
+        console.log('🔐 AuthContext - Timeout reached, setting loading to false');
+        setLoading(false);
+      }, 10000); // 10 second timeout
+      
+      try {
+        // First check if we have valid tokens
+        if (!tokenManager.areTokensValid()) {
+          console.log('🔐 AuthContext - No valid tokens found');
+          tokenManager.clearTokens()
           setUser(null)
           setIsAuthenticated(false)
+          setToken(null)
+          return
         }
+
+        const storedToken = localStorage.getItem('access_token')
+        
+        // If access token is expired but refresh is valid, let the API interceptor handle it
+        if (tokensInfo.accessExpired && !tokensInfo.refreshExpired) {
+          console.log('🔐 AuthContext - Access token expired, but refresh token is valid');
+        }
+        
+        console.log('🔐 AuthContext - Getting profile...');
+        // Get user profile (this might trigger token refresh if needed)
+        const response = await getProfile()
+        console.log('🔐 AuthContext - Profile loaded:', response.data?.username);
+        
+        setUser(response.data)
+        setIsAuthenticated(true)
+        setToken(localStorage.getItem('access_token')) // Get the potentially refreshed token
+        
+      } catch (error) {
+        console.log('🔐 AuthContext - Auth failed:', error.message);
+        // Clear invalid tokens
+        tokenManager.clearTokens()
+        setUser(null)
+        setIsAuthenticated(false)
+        setToken(null)
+      } finally {
+        clearTimeout(timeout);
+        console.log('🔐 AuthContext - Setting loading to false');
+        setLoading(false)
       }
-      setLoading(false)
     }
 
     checkAuth()
@@ -57,6 +89,7 @@ export const AuthProvider = ({ children }) => {
       const profileResponse = await getProfile()
       setUser(profileResponse.data)
       setIsAuthenticated(true)
+      setToken(access)
       
       return { success: true, data: profileResponse.data }
     } catch (error) {
@@ -106,11 +139,20 @@ export const AuthProvider = ({ children }) => {
       console.error('Logout error:', error)
     } finally {
       // Clear tokens and user data
-      localStorage.removeItem('access_token')
-      localStorage.removeItem('refresh_token')
+      tokenManager.clearTokens()
       setUser(null)
       setIsAuthenticated(false)
+      setToken(null)
     }
+  }
+
+  const forceLogout = () => {
+    console.log('🔐 AuthContext - Force logout due to invalid tokens');
+    // Clear tokens and user data immediately without API call
+    tokenManager.clearTokens()
+    setUser(null)
+    setIsAuthenticated(false)
+    setToken(null)
   }
 
   const updateUserProfile = async (userData) => {
@@ -133,7 +175,9 @@ export const AuthProvider = ({ children }) => {
     login,
     register,
     logout,
+    forceLogout,
     updateProfile: updateUserProfile,
+    token, // Add token to the context value
   }
 
   return (

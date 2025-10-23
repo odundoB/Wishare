@@ -78,6 +78,7 @@ class Notification(models.Model):
             ('event', 'Event'),
             ('forum', 'Forum'),
             ('user', 'User'),
+            ('chat', 'Chat'),
             ('system', 'System'),
             ('other', 'Other'),
         ],
@@ -314,3 +315,208 @@ class Notification(models.Model):
             status_text,
             time_ago
         )
+
+
+class ChatRoom(models.Model):
+    """
+    Model for chat rooms where users can communicate.
+    """
+    ROOM_TYPES = [
+        ('class', 'Class'),
+        ('study_group', 'Study Group'),
+        ('general', 'General'),
+    ]
+    
+    name = models.CharField(max_length=100, help_text="Name of the chat room")
+    description = models.TextField(blank=True, help_text="Description of the room")
+    room_type = models.CharField(max_length=20, choices=ROOM_TYPES, default='general')
+    creator = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_rooms')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    is_active = models.BooleanField(default=True)
+    auto_approve = models.BooleanField(default=True, help_text="Auto approve join requests")
+    max_participants = models.PositiveIntegerField(default=50)
+    
+    class Meta:
+        ordering = ['-created_at']
+        
+    def __str__(self):
+        return self.name
+    
+    @property
+    def participant_count(self):
+        return self.participants.filter(is_active=True).count()
+    
+    @property
+    def is_full(self):
+        return self.participant_count >= self.max_participants
+
+
+class RoomParticipant(models.Model):
+    """
+    Model for tracking room participants and their status.
+    """
+    room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name='participants')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='room_participations')
+    joined_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
+    is_moderator = models.BooleanField(default=False)
+    
+    class Meta:
+        unique_together = ['room', 'user']
+        ordering = ['-joined_at']
+        
+    def __str__(self):
+        return f"{self.user.username} in {self.room.name}"
+
+
+class JoinRequest(models.Model):
+    """
+    Model for handling room join requests.
+    """
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+    ]
+    
+    room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name='join_requests')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='join_requests')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    message = models.TextField(blank=True, help_text="Optional message from the user")
+    created_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+    processed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='processed_requests')
+    
+    class Meta:
+        unique_together = ['room', 'user']
+        ordering = ['-created_at']
+        
+    def __str__(self):
+        return f"{self.user.username} -> {self.room.name} ({self.status})"
+
+
+class ChatMessage(models.Model):
+    """
+    Model for storing chat messages in rooms.
+    """
+    MESSAGE_TYPES = [
+        ('text', 'Text'),
+        ('reply', 'Reply'),
+        ('system', 'System'),
+        ('join', 'User Join'),
+        ('leave', 'User Leave'),
+    ]
+    
+    room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name='messages')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='chat_messages', null=True, blank=True)
+    message = models.TextField(help_text="Message content")
+    message_type = models.CharField(max_length=20, choices=MESSAGE_TYPES, default='text')
+    
+    # Reply functionality
+    reply_to = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='replies')
+    is_private = models.BooleanField(default=False, help_text="Private reply (only visible to sender and recipient)")
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    edited_at = models.DateTimeField(null=True, blank=True)
+    is_edited = models.BooleanField(default=False)
+    
+    # Reactions (stored as JSON for simplicity)
+    reactions = models.JSONField(default=dict, blank=True, help_text="Emoji reactions with user IDs")
+    
+    class Meta:
+        ordering = ['created_at']
+        
+    def __str__(self):
+        if self.user:
+            return f"{self.user.username}: {self.message[:50]}..."
+        return f"System: {self.message[:50]}..."
+    
+    def save(self, *args, **kwargs):
+        # Set edited timestamp if message is being edited
+        if self.pk and self.is_edited:
+            self.edited_at = timezone.now()
+        super().save(*args, **kwargs)
+
+
+class PrivateChatRoom(models.Model):
+    """
+    Model for private chat rooms between two users within a public chat room context.
+    """
+    # Link to the public chat room where this private conversation exists
+    public_room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name='private_chats')
+    
+    # The two participants in this private chat
+    user1 = models.ForeignKey(User, on_delete=models.CASCADE, related_name='private_chats_as_user1')
+    user2 = models.ForeignKey(User, on_delete=models.CASCADE, related_name='private_chats_as_user2')
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    # Activity tracking
+    is_active = models.BooleanField(default=True)
+    
+    class Meta:
+        # Ensure only one private chat room between two users in a public room
+        unique_together = [['public_room', 'user1', 'user2']]
+        ordering = ['-updated_at']
+    
+    def __str__(self):
+        return f"Private chat: {self.user1.username} & {self.user2.username} in {self.public_room.name}"
+    
+    @property
+    def participants(self):
+        """Get both participants as a list."""
+        return [self.user1, self.user2]
+    
+    def get_other_user(self, current_user):
+        """Get the other participant in this private chat."""
+        return self.user2 if current_user == self.user1 else self.user1
+    
+    def get_unread_count(self, user):
+        """Get count of unread private messages for a specific user."""
+        return self.private_messages.filter(
+            is_read=False
+        ).exclude(sender=user).count()
+
+
+class PrivateMessage(models.Model):
+    """
+    Model for storing private messages within private chat rooms.
+    """
+    private_chat = models.ForeignKey(PrivateChatRoom, on_delete=models.CASCADE, related_name='private_messages')
+    sender = models.ForeignKey(User, on_delete=models.CASCADE, related_name='sent_private_messages')
+    message = models.TextField(help_text="Private message content")
+    
+    # Message status
+    is_read = models.BooleanField(default=False)
+    read_at = models.DateTimeField(null=True, blank=True)
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    edited_at = models.DateTimeField(null=True, blank=True)
+    is_edited = models.BooleanField(default=False)
+    
+    # Reactions (stored as JSON for consistency with ChatMessage)
+    reactions = models.JSONField(default=dict, blank=True, help_text="Emoji reactions with user IDs")
+    
+    class Meta:
+        ordering = ['created_at']
+    
+    def __str__(self):
+        return f"{self.sender.username} -> {self.private_chat}: {self.message[:50]}..."
+    
+    def mark_as_read(self, user=None):
+        """Mark this message as read."""
+        if not self.is_read and (user is None or user != self.sender):
+            self.is_read = True
+            self.read_at = timezone.now()
+            self.save(update_fields=['is_read', 'read_at'])
+    
+    def save(self, *args, **kwargs):
+        # Set edited timestamp if message is being edited
+        if self.pk and self.is_edited:
+            self.edited_at = timezone.now()
+        super().save(*args, **kwargs)

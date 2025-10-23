@@ -1,10 +1,16 @@
 """
 URL patterns for the notifications app.
-Defines API routes for notification management.
+Defines API routes for notification management and chat rooms.
 """
 
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 from . import views
+
+# Create router for chat rooms
+router = DefaultRouter()
+router.register(r'rooms', views.ChatRoomViewSet, basename='chatroom')
+router.register(r'private-chats', views.PrivateChatRoomViewSet, basename='privatechat')
 
 urlpatterns = [
     # Core notification routes (as requested)
@@ -43,4 +49,7 @@ urlpatterns = [
     
     # POST /notifications/mark-recent-read/ → mark recent notifications as read
     path('mark-recent-read/', views.notification_mark_recent_as_read, name='notification-mark-recent-read'),
+    
+    # Chat room URLs
+    path('', include(router.urls)),
 ]

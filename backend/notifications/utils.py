@@ -85,6 +85,58 @@ class NotificationManager:
         
         return notifications
     
+    @staticmethod
+    def notify_chat_join_request(room, requester):
+        """
+        Create notification when someone requests to join a chat room.
+        
+        Args:
+            room: Room object that was requested to join
+            requester: User who requested to join
+        
+        Returns:
+            Notification instance
+        """
+        return Notification.create_notification(
+            recipient=room.host,
+            verb="requested to join",
+            actor=requester,
+            target=room,
+            notification_type='chat',
+            data={
+                'room_name': room.name,
+                'room_id': room.id,
+                'requester_name': requester.username,
+                'action_type': 'join_request'
+            }
+        )
+    
+    @staticmethod
+    def notify_chat_join_approved(room, approved_user, approved_by):
+        """
+        Create notification when a join request is approved.
+        
+        Args:
+            room: Room object
+            approved_user: User who was approved
+            approved_by: User who approved the request (host)
+        
+        Returns:
+            Notification instance
+        """
+        return Notification.create_notification(
+            recipient=approved_user,
+            verb="approved your request to join",
+            actor=approved_by,
+            target=room,
+            notification_type='chat',
+            data={
+                'room_name': room.name,
+                'room_id': room.id,
+                'action_type': 'join_approved'
+            }
+        )
+    
     
     @staticmethod
     def notify_user_mentioned(user, mentioned_by, context_object, context_type):

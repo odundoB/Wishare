@@ -3,8 +3,8 @@ DRF views for the notifications app.
 Handles notification listing, updates, and management.
 """
 
-from rest_framework import generics, status, filters
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework import generics, status, filters, serializers, viewsets
+from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
@@ -630,3 +630,989 @@ def notification_mark_recent_as_read(request):
         'updated_count': updated_count,
         'previous_recent_unread_count': recent_unread_count
     }, status=status.HTTP_200_OK)
+
+
+# ============================================================================
+# CHAT ROOM VIEWS
+# ============================================================================
+
+from .models import ChatRoom, RoomParticipant, JoinRequest, ChatMessage, PrivateChatRoom, PrivateMessage
+
+
+class ChatMessageSerializer(serializers.ModelSerializer):
+    """Serializer for chat messages."""
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    user_username = serializers.CharField(source='user.username', read_only=True)
+    user_name = serializers.CharField(source='user.get_full_name', read_only=True)
+    user_role = serializers.CharField(source='user.role', read_only=True)
+    reply_to_data = serializers.SerializerMethodField()
+    reactions_formatted = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ChatMessage
+        fields = ['id', 'message', 'message_type', 'created_at', 'user_id', 'user_username', 'user_name', 'user_role', 
+                 'is_edited', 'edited_at', 'reply_to', 'reply_to_data', 'is_private', 'reactions', 'reactions_formatted']
+        read_only_fields = ['id', 'created_at', 'user_id', 'user_username', 'user_name', 'user_role', 'reply_to_data', 'reactions_formatted']
+    
+    def get_reply_to_data(self, obj):
+        """Get reply-to message data if this is a reply."""
+        if obj.reply_to:
+            return {
+                'id': obj.reply_to.id,
+                'message': obj.reply_to.message,
+                'user': {
+                    'id': obj.reply_to.user.id if obj.reply_to.user else None,
+                    'username': obj.reply_to.user.username if obj.reply_to.user else 'System',
+                    'displayName': obj.reply_to.user.get_full_name() if obj.reply_to.user else 'System'
+                }
+            }
+        return None
+    
+    def get_reactions_formatted(self, obj):
+        """Format reactions for frontend consumption."""
+        if not obj.reactions:
+            return []
+        
+        formatted = []
+        for emoji, user_ids in obj.reactions.items():
+            if user_ids:  # Only include reactions that have users
+                formatted.append({
+                    'emoji': emoji,
+                    'count': len(user_ids),
+                    'users': user_ids
+                })
+        return formatted
+
+
+class PrivateMessageSerializer(serializers.ModelSerializer):
+    """Serializer for private messages."""
+    sender_name = serializers.CharField(source='sender.get_full_name', read_only=True)
+    sender_username = serializers.CharField(source='sender.username', read_only=True)
+    
+    class Meta:
+        model = PrivateMessage
+        fields = ['id', 'message', 'sender', 'sender_name', 'sender_username', 
+                 'is_read', 'read_at', 'created_at', 'edited_at', 'is_edited', 'reactions']
+        read_only_fields = ['id', 'sender', 'created_at', 'read_at']
+
+
+class PrivateChatRoomSerializer(serializers.ModelSerializer):
+    """Serializer for private chat rooms."""
+    other_user = serializers.SerializerMethodField()
+    unread_count = serializers.SerializerMethodField()
+    last_message = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = PrivateChatRoom
+        fields = ['id', 'public_room', 'other_user', 'created_at', 'updated_at', 
+                 'unread_count', 'last_message']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_other_user(self, obj):
+        """Get the other user in this private chat."""
+        current_user = self.context['request'].user
+        other_user = obj.get_other_user(current_user)
+        return {
+            'id': other_user.id,
+            'username': other_user.username,
+            'full_name': other_user.get_full_name(),
+        }
+    
+    def get_unread_count(self, obj):
+        """Get unread message count for current user."""
+        current_user = self.context['request'].user
+        return obj.get_unread_count(current_user)
+    
+    def get_last_message(self, obj):
+        """Get the last message in this private chat."""
+        last_message = obj.private_messages.last()
+        if last_message:
+            return {
+                'message': last_message.message,
+                'sender': last_message.sender.username,
+                'created_at': last_message.created_at,
+                'is_read': last_message.is_read
+            }
+        return None
+
+
+class ChatRoomSerializer(serializers.ModelSerializer):
+    """Serializer for chat rooms."""
+    participant_count = serializers.ReadOnlyField()
+    is_full = serializers.ReadOnlyField()
+    creator_name = serializers.CharField(source='creator.get_full_name', read_only=True)
+    is_participant = serializers.SerializerMethodField()
+    has_pending_request = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ChatRoom
+        fields = ['id', 'name', 'description', 'room_type', 'creator', 'creator_name', 
+                 'created_at', 'is_active', 'auto_approve', 'max_participants', 
+                 'participant_count', 'is_full', 'is_participant', 'has_pending_request']
+        read_only_fields = ['id', 'creator', 'created_at']
+    
+    def get_is_participant(self, obj):
+        request = self.context.get('request')
+        if request and hasattr(request, 'user'):
+            return obj.participants.filter(user=request.user, is_active=True).exists()
+        return False
+    
+    def get_has_pending_request(self, obj):
+        request = self.context.get('request')
+        if request and hasattr(request, 'user'):
+            return obj.join_requests.filter(user=request.user, status='pending').exists()
+        return False
+
+
+class ChatRoomViewSet(viewsets.ModelViewSet):
+    """ViewSet for chat rooms."""
+    serializer_class = ChatRoomSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        return ChatRoom.objects.filter(is_active=True)
+    
+    def perform_create(self, serializer):
+        room = serializer.save(creator=self.request.user)
+        # Automatically add creator as participant
+        RoomParticipant.objects.create(
+            room=room, 
+            user=self.request.user, 
+            is_moderator=True
+        )
+    
+    @action(detail=True, methods=['post'])
+    def join(self, request, pk=None):
+        """Join a chat room or create join request."""
+        room = self.get_object()
+        user = request.user
+        
+        # Check if already a participant
+        if room.participants.filter(user=user, is_active=True).exists():
+            return Response(
+                {'detail': 'You are already a participant in this room.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if room is full
+        if room.is_full:
+            return Response(
+                {'detail': 'Room is full.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check for existing join request
+        existing_request = room.join_requests.filter(user=user, status='pending').first()
+        if existing_request:
+            return Response(
+                {'detail': 'You already have a pending join request.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if room.auto_approve:
+            # Auto-approve: add directly as participant
+            RoomParticipant.objects.create(room=room, user=user)
+            return Response(
+                {'detail': 'Successfully joined the room!'},
+                status=status.HTTP_200_OK
+            )
+        else:
+            # Create join request
+            join_request = JoinRequest.objects.create(
+                room=room, 
+                user=user, 
+                message=request.data.get('message', '')
+            )
+            
+            # Create notification for room creator
+            from .models import Notification
+            from django.contrib.contenttypes.models import ContentType
+            
+            Notification.objects.create(
+                recipient=room.creator,
+                actor=user,
+                verb=f'wants to join your room "{room.name}"',
+                content_type=ContentType.objects.get_for_model(JoinRequest),
+                object_id=join_request.id,
+                notification_type='chat',
+                data={
+                    'room_id': room.id,
+                    'room_name': room.name,
+                    'join_request_id': join_request.id,
+                    'message': request.data.get('message', ''),
+                    'action_type': 'join_request'
+                }
+            )
+            
+            return Response(
+                {'detail': 'Join request sent successfully!'},
+                status=status.HTTP_201_CREATED
+            )
+    
+    @action(detail=False, methods=['get'])
+    def my_rooms(self, request):
+        """Get rooms where user is a participant."""
+        user_rooms = ChatRoom.objects.filter(
+            participants__user=request.user,
+            participants__is_active=True,
+            is_active=True
+        )
+        serializer = self.get_serializer(user_rooms, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def my_requests(self, request):
+        """Get user's join requests."""
+        requests = JoinRequest.objects.filter(user=request.user)
+        data = [{
+            'id': req.id,
+            'room_name': req.room.name,
+            'room_id': req.room.id,
+            'status': req.status,
+            'created_at': req.created_at,
+            'message': req.message
+        } for req in requests]
+        return Response(data)
+    
+    @action(detail=True, methods=['get'])
+    def pending_requests(self, request, pk=None):
+        """Get pending join requests for a room (room creator only)."""
+        room = self.get_object()
+        
+        # Only room creator can view pending requests
+        if room.creator != request.user:
+            return Response(
+                {'detail': 'Only room creator can view pending requests.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        requests = JoinRequest.objects.filter(room=room, status='pending')
+        data = [{
+            'id': req.id,
+            'user_id': req.user.id,
+            'user_name': req.user.get_full_name() or req.user.username,
+            'user_role': getattr(req.user, 'role', 'student'),
+            'message': req.message,
+            'created_at': req.created_at,
+        } for req in requests]
+        return Response(data)
+    
+    @action(detail=True, methods=['post'])
+    def approve_request(self, request, pk=None):
+        """Approve a join request (room creator only)."""
+        room = self.get_object()
+        
+        # Only room creator can approve requests
+        if room.creator != request.user:
+            return Response(
+                {'detail': 'Only room creator can approve requests.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        join_request_id = request.data.get('request_id')
+        if not join_request_id:
+            return Response(
+                {'detail': 'request_id is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            join_request = JoinRequest.objects.get(
+                id=join_request_id, 
+                room=room, 
+                status='pending'
+            )
+        except JoinRequest.DoesNotExist:
+            return Response(
+                {'detail': 'Join request not found or already processed.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Check if room is full
+        if room.is_full:
+            return Response(
+                {'detail': 'Room is full, cannot approve more requests.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Approve request and add as participant
+        join_request.status = 'approved'
+        join_request.processed_by = request.user
+        join_request.processed_at = timezone.now()
+        join_request.save()
+        
+        # Add user as participant
+        RoomParticipant.objects.create(
+            room=room, 
+            user=join_request.user
+        )
+        
+        # Create notification for the user
+        from .models import Notification
+        from django.contrib.contenttypes.models import ContentType
+        
+        Notification.objects.create(
+            recipient=join_request.user,
+            actor=request.user,
+            verb=f'approved your request to join "{room.name}"',
+            content_type=ContentType.objects.get_for_model(ChatRoom),
+            object_id=room.id,
+            notification_type='chat',
+            data={
+                'room_id': room.id,
+                'room_name': room.name,
+                'action_type': 'request_approved'
+            }
+        )
+        
+        return Response(
+            {'detail': 'Join request approved successfully!'},
+            status=status.HTTP_200_OK
+        )
+    
+    @action(detail=True, methods=['post'])
+    def deny_request(self, request, pk=None):
+        """Deny a join request (room creator only)."""
+        room = self.get_object()
+        
+        # Only room creator can deny requests
+        if room.creator != request.user:
+            return Response(
+                {'detail': 'Only room creator can deny requests.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        join_request_id = request.data.get('request_id')
+        if not join_request_id:
+            return Response(
+                {'detail': 'request_id is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            join_request = JoinRequest.objects.get(
+                id=join_request_id, 
+                room=room, 
+                status='pending'
+            )
+        except JoinRequest.DoesNotExist:
+            return Response(
+                {'detail': 'Join request not found or already processed.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Deny request
+        join_request.status = 'rejected'
+        join_request.processed_by = request.user
+        join_request.processed_at = timezone.now()
+        join_request.save()
+        
+        # Create notification for the user
+        from .models import Notification
+        from django.contrib.contenttypes.models import ContentType
+        
+        Notification.objects.create(
+            recipient=join_request.user,
+            actor=request.user,
+            verb=f'denied your request to join "{room.name}"',
+            content_type=ContentType.objects.get_for_model(ChatRoom),
+            object_id=room.id,
+            notification_type='chat',
+            data={
+                'room_id': room.id,
+                'room_name': room.name,
+                'action_type': 'request_denied',
+                'reason': request.data.get('reason', '')
+            }
+        )
+        
+        return Response(
+            {'detail': 'Join request denied.'},
+            status=status.HTTP_200_OK
+        )
+    
+    @action(detail=True, methods=['get'])
+    def messages(self, request, pk=None):
+        """Get messages for a room (participants only)."""
+        room = self.get_object()
+        
+        # Check if user is a participant or room creator
+        if not (room.participants.filter(user=request.user, is_active=True).exists() or 
+                room.creator == request.user):
+            return Response(
+                {'detail': 'You must be a participant to view messages.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        messages = ChatMessage.objects.filter(room=room).order_by('created_at')
+        serializer = ChatMessageSerializer(messages, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def send_message(self, request, pk=None):
+        """Send a message to a room (participants only)."""
+        room = self.get_object()
+        
+        # Check if user is a participant or room creator
+        if not (room.participants.filter(user=request.user, is_active=True).exists() or 
+                room.creator == request.user):
+            return Response(
+                {'detail': 'You must be a participant to send messages.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        message_text = request.data.get('message', '').strip()
+        if not message_text:
+            return Response(
+                {'detail': 'Message content is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Create the message
+        message = ChatMessage.objects.create(
+            room=room,
+            user=request.user,
+            message=message_text,
+            message_type='text'
+        )
+        
+        serializer = ChatMessageSerializer(message)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    
+    @action(detail=True, methods=['get'])
+    def participants(self, request, pk=None):
+        """Get participants for a room (participants only)."""
+        room = self.get_object()
+        
+        # Check if user is a participant or room creator
+        if not (room.participants.filter(user=request.user, is_active=True).exists() or 
+                room.creator == request.user):
+            return Response(
+                {'detail': 'You must be a participant to view participants.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        participants = RoomParticipant.objects.filter(room=room, is_active=True)
+        data = [{
+            'id': p.user.id,
+            'username': p.user.username,
+            'full_name': p.user.get_full_name(),
+            'role': getattr(p.user, 'role', 'student'),
+            'is_moderator': p.is_moderator,
+            'joined_at': p.joined_at,
+        } for p in participants]
+        
+        # Add room creator if not already in participants
+        creator_as_participant = participants.filter(user=room.creator).first()
+        if not creator_as_participant:
+            data.append({
+                'id': room.creator.id,
+                'username': room.creator.username,
+                'full_name': room.creator.get_full_name(),
+                'role': getattr(room.creator, 'role', 'teacher'),
+                'is_moderator': True,
+                'joined_at': room.created_at,
+            })
+        
+        return Response(data)
+
+    @action(detail=True, methods=['post'])
+    def send_reply(self, request, pk=None):
+        """Send a reply to a specific message."""
+        room = self.get_object()
+        
+        # Check if user is a participant or room creator
+        if not (room.participants.filter(user=request.user, is_active=True).exists() or 
+                room.creator == request.user):
+            return Response(
+                {'detail': 'You must be a participant to send messages.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        message_text = request.data.get('message', '').strip()
+        reply_to_id = request.data.get('replyTo')
+        is_private = request.data.get('isPrivate', False)
+        
+        if not message_text:
+            return Response(
+                {'detail': 'Message content is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        reply_to = None
+        if reply_to_id:
+            try:
+                reply_to = ChatMessage.objects.get(id=reply_to_id, room=room)
+            except ChatMessage.DoesNotExist:
+                return Response(
+                    {'detail': 'Reply target message not found.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Create the reply message
+        message = ChatMessage.objects.create(
+            room=room,
+            user=request.user,
+            message=message_text,
+            message_type='reply' if reply_to else 'text',
+            reply_to=reply_to,
+            is_private=is_private
+        )
+        
+        serializer = ChatMessageSerializer(message)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['patch'], url_path='messages/(?P<message_id>[^/.]+)')
+    def edit_message(self, request, pk=None, message_id=None):
+        """Edit a message (own messages only)."""
+        room = self.get_object()
+        
+        try:
+            message = ChatMessage.objects.get(id=message_id, room=room, user=request.user)
+        except ChatMessage.DoesNotExist:
+            return Response(
+                {'detail': 'Message not found or you do not have permission to edit it.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        new_text = request.data.get('message', '').strip()
+        if not new_text:
+            return Response(
+                {'detail': 'Message content is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        message.message = new_text
+        message.is_edited = True
+        message.edited_at = timezone.now()
+        message.save()
+        
+        serializer = ChatMessageSerializer(message)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['delete'], url_path='messages/(?P<message_id>[^/.]+)')
+    def delete_message(self, request, pk=None, message_id=None):
+        """Delete a message."""
+        room = self.get_object()
+        
+        try:
+            message = ChatMessage.objects.get(id=message_id, room=room)
+        except ChatMessage.DoesNotExist:
+            return Response(
+                {'detail': 'Message not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        delete_for_all = request.data.get('delete_for_all', False)
+        
+        # Check permissions
+        if delete_for_all:
+            # Only message author can delete for all
+            if message.user != request.user:
+                return Response(
+                    {'detail': 'You can only delete your own messages for all.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            message.delete()  # Actually delete the message
+        else:
+            # Delete for self - mark as deleted for this user
+            # For simplicity, we'll just return success - in a full implementation
+            # you'd track per-user deletions
+            pass
+        
+        return Response({'detail': 'Message deleted successfully.'})
+
+    @action(detail=True, methods=['post'], url_path='messages/(?P<message_id>[^/.]+)/react')
+    def add_reaction(self, request, pk=None, message_id=None):
+        """Add emoji reaction to a message."""
+        room = self.get_object()
+        
+        # Check if user is a participant
+        if not (room.participants.filter(user=request.user, is_active=True).exists() or 
+                room.creator == request.user):
+            return Response(
+                {'detail': 'You must be a participant to react to messages.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        try:
+            message = ChatMessage.objects.get(id=message_id, room=room)
+        except ChatMessage.DoesNotExist:
+            return Response(
+                {'detail': 'Message not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        emoji = request.data.get('emoji')
+        if not emoji:
+            return Response(
+                {'detail': 'Emoji is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # For simplicity, we'll store reactions in the message's metadata
+        # In a production app, you'd have a separate Reaction model
+        if not hasattr(message, 'reactions'):
+            message.reactions = {}
+        
+        if emoji not in message.reactions:
+            message.reactions[emoji] = []
+        
+        if request.user.id not in message.reactions[emoji]:
+            message.reactions[emoji].append(request.user.id)
+            message.save()
+        
+        return Response({'detail': 'Reaction added successfully.'})
+
+    @action(detail=True, methods=['delete'], url_path='messages/(?P<message_id>[^/.]+)/react')
+    def remove_reaction(self, request, pk=None, message_id=None):
+        """Remove emoji reaction from a message."""
+        room = self.get_object()
+        
+        try:
+            message = ChatMessage.objects.get(id=message_id, room=room)
+        except ChatMessage.DoesNotExist:
+            return Response(
+                {'detail': 'Message not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        emoji = request.data.get('emoji')
+        if not emoji:
+            return Response(
+                {'detail': 'Emoji is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Remove user's reaction
+        if hasattr(message, 'reactions') and emoji in message.reactions:
+            if request.user.id in message.reactions[emoji]:
+                message.reactions[emoji].remove(request.user.id)
+                if not message.reactions[emoji]:  # Remove empty emoji lists
+                    del message.reactions[emoji]
+                message.save()
+        
+        return Response({'detail': 'Reaction removed successfully.'})
+
+    @action(detail=True, methods=['post'])
+    def remove_participant(self, request, pk=None):
+        """Remove a participant from the room (host only)."""
+        room = self.get_object()
+        user_id = request.data.get('user_id')
+        
+        if not user_id:
+            return Response(
+                {'detail': 'user_id is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if current user is host (creator or moderator)
+        is_host = (
+            room.creator == request.user or
+            room.participants.filter(user=request.user, is_moderator=True, is_active=True).exists()
+        )
+        
+        if not is_host:
+            return Response(
+                {'detail': 'Only hosts can remove participants.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Prevent host from removing themselves
+        if str(user_id) == str(request.user.id):
+            return Response(
+                {'detail': 'You cannot remove yourself from the room.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Find and deactivate the participant
+            participant = room.participants.get(user_id=user_id, is_active=True)
+            participant.is_active = False
+            participant.save()
+            
+            # Create notification for removed user
+            from .models import Notification
+            from django.contrib.contenttypes.models import ContentType
+            
+            Notification.objects.create(
+                recipient_id=user_id,
+                actor=request.user,
+                verb=f'removed you from room "{room.name}"',
+                content_type=ContentType.objects.get_for_model(ChatRoom),
+                object_id=room.id,
+                notification_type='chat',
+                data={
+                    'room_id': room.id,
+                    'room_name': room.name,
+                    'action_type': 'removed_from_room'
+                }
+            )
+            
+            return Response({'detail': 'Participant removed successfully.'})
+            
+        except RoomParticipant.DoesNotExist:
+            return Response(
+                {'detail': 'Participant not found in this room.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+    @action(detail=True, methods=['post'])
+    def leave_room(self, request, pk=None):
+        """Leave the room voluntarily."""
+        room = self.get_object()
+        
+        try:
+            # Find and deactivate the participant
+            participant = room.participants.get(user=request.user, is_active=True)
+            participant.is_active = False
+            participant.save()
+            
+            # Create notification for room creator if not the one leaving
+            if room.creator != request.user:
+                from .models import Notification
+                from django.contrib.contenttypes.models import ContentType
+                
+                Notification.objects.create(
+                    recipient=room.creator,
+                    actor=request.user,
+                    verb=f'left room "{room.name}"',
+                    content_type=ContentType.objects.get_for_model(ChatRoom),
+                    object_id=room.id,
+                    notification_type='chat',
+                    data={
+                        'room_id': room.id,
+                        'room_name': room.name,
+                        'action_type': 'left_room'
+                    }
+                )
+            
+            return Response({'detail': 'Successfully left the room.'})
+            
+        except RoomParticipant.DoesNotExist:
+            return Response(
+                {'detail': 'You are not a participant in this room.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+    @action(detail=True, methods=['post'])
+    def end_meeting(self, request, pk=None):
+        """End the meeting (host only) - permanently deletes the room."""
+        room = self.get_object()
+        
+        # Check if current user is host (creator or moderator)
+        is_host = (
+            room.creator == request.user or
+            room.participants.filter(user=request.user, is_moderator=True, is_active=True).exists()
+        )
+        
+        if not is_host:
+            return Response(
+                {'detail': 'Only hosts can end meetings.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Store room info before deletion for notifications
+        room_name = room.name
+        room_id = room.id
+        
+        # Get all participants before deletion (excluding the host)
+        participants = room.participants.filter(is_active=True).exclude(user=request.user)
+        participant_users = [p.user for p in participants]
+        
+        # Notify all participants that the meeting has ended BEFORE deletion
+        from .models import Notification
+        from django.contrib.contenttypes.models import ContentType
+        
+        for participant in participant_users:
+            Notification.objects.create(
+                recipient=participant,
+                actor=request.user,
+                verb=f'ended and deleted the meeting "{room_name}"',
+                content_type=ContentType.objects.get_for_model(ChatRoom),
+                object_id=None,  # Room will be deleted, so no object_id
+                notification_type='chat',
+                data={
+                    'room_id': room_id,
+                    'room_name': room_name,
+                    'action_type': 'meeting_deleted',
+                    'message': f'The meeting "{room_name}" has been permanently deleted by the host.'
+                }
+            )
+        
+        # Permanently delete the room and all related data
+        # This will cascade delete: participants, messages, join_requests, reactions
+        room.delete()
+        
+        return Response({
+            'detail': 'Meeting ended and deleted successfully.',
+            'room_name': room_name,
+            'deleted': True
+        })
+
+
+class PrivateChatRoomViewSet(viewsets.ModelViewSet):
+    """ViewSet for private chat rooms within public chat rooms."""
+    serializer_class = PrivateChatRoomSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        """Get private chat rooms for the current user."""
+        user = self.request.user
+        return PrivateChatRoom.objects.filter(
+            Q(user1=user) | Q(user2=user),
+            is_active=True
+        )
+    
+    @action(detail=False, methods=['get'])
+    def by_public_room(self, request):
+        """Get private chat rooms for a specific public room."""
+        public_room_id = request.query_params.get('public_room_id')
+        if not public_room_id:
+            return Response(
+                {'detail': 'public_room_id is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Verify user is participant in the public room
+        try:
+            public_room = ChatRoom.objects.get(id=public_room_id)
+            if not public_room.participants.filter(user=request.user, is_active=True).exists():
+                return Response(
+                    {'detail': 'You are not a participant in this room.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        except ChatRoom.DoesNotExist:
+            return Response(
+                {'detail': 'Public room not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get private chats in this public room
+        private_chats = self.get_queryset().filter(public_room_id=public_room_id)
+        serializer = self.get_serializer(private_chats, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['post'])
+    def get_or_create(self, request):
+        """Get or create a private chat room with another user."""
+        public_room_id = request.data.get('public_room_id')
+        other_user_id = request.data.get('other_user_id')
+        
+        if not public_room_id or not other_user_id:
+            return Response(
+                {'detail': 'public_room_id and other_user_id are required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Verify users are participants in the public room
+        try:
+            public_room = ChatRoom.objects.get(id=public_room_id)
+            if not public_room.participants.filter(user=request.user, is_active=True).exists():
+                return Response(
+                    {'detail': 'You are not a participant in this room.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            other_user = User.objects.get(id=other_user_id)
+            
+            if not public_room.participants.filter(user=other_user, is_active=True).exists():
+                return Response(
+                    {'detail': 'The other user is not a participant in this room.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+        except ChatRoom.DoesNotExist:
+            return Response(
+                {'detail': 'Public room not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except User.DoesNotExist:
+            return Response(
+                {'detail': 'Other user not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Prevent self-chat
+        if request.user.id == int(other_user_id):
+            return Response(
+                {'detail': 'Cannot create private chat with yourself.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get or create private chat room (ensure consistent user ordering)
+        user1, user2 = sorted([request.user, other_user], key=lambda u: u.id)
+        private_chat, created = PrivateChatRoom.objects.get_or_create(
+            public_room=public_room,
+            user1=user1,
+            user2=user2,
+            defaults={'is_active': True}
+        )
+        
+        serializer = self.get_serializer(private_chat)
+        status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        return Response(serializer.data, status=status_code)
+    
+    @action(detail=True, methods=['get'])
+    def messages(self, request, pk=None):
+        """Get messages from a private chat room."""
+        private_chat = self.get_object()
+        messages = private_chat.private_messages.all()
+        
+        # Mark messages as read for the current user
+        unread_messages = messages.filter(is_read=False).exclude(sender=request.user)
+        for message in unread_messages:
+            message.mark_as_read(request.user)
+        
+        serializer = PrivateMessageSerializer(messages, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def send_message(self, request, pk=None):
+        """Send a message in a private chat room."""
+        private_chat = self.get_object()
+        message_text = request.data.get('message', '').strip()
+        
+        if not message_text:
+            return Response(
+                {'detail': 'Message content is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Create the private message
+        private_message = PrivateMessage.objects.create(
+            private_chat=private_chat,
+            sender=request.user,
+            message=message_text
+        )
+        
+        # Update the private chat room timestamp
+        private_chat.updated_at = timezone.now()
+        private_chat.save()
+        
+        # Create notification for the other user
+        other_user = private_chat.get_other_user(request.user)
+        from .models import Notification
+        from django.contrib.contenttypes.models import ContentType
+        
+        Notification.objects.create(
+            recipient=other_user,
+            actor=request.user,
+            verb=f'sent you a private message in "{private_chat.public_room.name}"',
+            content_type=ContentType.objects.get_for_model(PrivateMessage),
+            object_id=private_message.id,
+            notification_type='private_message',
+            data={
+                'private_chat_id': private_chat.id,
+                'public_room_id': private_chat.public_room.id,
+                'public_room_name': private_chat.public_room.name,
+                'message_preview': message_text[:50],
+                'action_type': 'private_message_received'
+            }
+        )
+        
+        serializer = PrivateMessageSerializer(private_message)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+

@@ -541,6 +541,76 @@ const StudentProfile = () => {
           </Card>
         </Col>
       </Row>
+
+      {/* Quick Actions */}
+      <Row className="mb-4">
+        <Col>
+          <Card className="border-0 shadow-sm">
+            <Card.Body>
+              <h5 className="card-title mb-3">🚀 Quick Actions</h5>
+              <Row>
+                <Col md={4} className="mb-3">
+                  <Card className="h-100 text-center hover-shadow" style={{ cursor: 'pointer', transition: 'all 0.2s' }}
+                    onClick={() => window.location.href = '/chat'}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = 'translateY(-2px)'
+                      e.currentTarget.style.boxShadow = '0 4px 15px rgba(0,0,0,0.1)'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'translateY(0)'
+                      e.currentTarget.style.boxShadow = '0 0.125rem 0.25rem rgba(0, 0, 0, 0.075)'
+                    }}
+                  >
+                    <Card.Body className="py-3">
+                      <div className="text-success mb-2" style={{ fontSize: '2rem' }}>💬</div>
+                      <h6>Chat Rooms</h6>
+                      <small className="text-muted">Join class discussions</small>
+                    </Card.Body>
+                  </Card>
+                </Col>
+                <Col md={4} className="mb-3">
+                  <Card className="h-100 text-center hover-shadow" style={{ cursor: 'pointer', transition: 'all 0.2s' }}
+                    onClick={() => window.location.href = '/events'}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = 'translateY(-2px)'
+                      e.currentTarget.style.boxShadow = '0 4px 15px rgba(0,0,0,0.1)'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'translateY(0)'
+                      e.currentTarget.style.boxShadow = '0 0.125rem 0.25rem rgba(0, 0, 0, 0.075)'
+                    }}
+                  >
+                    <Card.Body className="py-3">
+                      <div className="text-primary mb-2" style={{ fontSize: '2rem' }}>📅</div>
+                      <h6>Events</h6>
+                      <small className="text-muted">View upcoming events</small>
+                    </Card.Body>
+                  </Card>
+                </Col>
+                <Col md={4} className="mb-3">
+                  <Card className="h-100 text-center hover-shadow" style={{ cursor: 'pointer', transition: 'all 0.2s' }}
+                    onClick={() => window.location.href = '/resources'}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = 'translateY(-2px)'
+                      e.currentTarget.style.boxShadow = '0 4px 15px rgba(0,0,0,0.1)'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'translateY(0)'
+                      e.currentTarget.style.boxShadow = '0 0.125rem 0.25rem rgba(0, 0, 0, 0.075)'
+                    }}
+                  >
+                    <Card.Body className="py-3">
+                      <div className="text-info mb-2" style={{ fontSize: '2rem' }}>📚</div>
+                      <h6>Resources</h6>
+                      <small className="text-muted">Browse study materials</small>
+                    </Card.Body>
+                  </Card>
+                </Col>
+              </Row>
+            </Card.Body>
+          </Card>
+        </Col>
+      </Row>
       
       {/* Image Preview Modal */}
       <Modal show={showImageModal} onHide={() => setShowImageModal(false)} size="md">
