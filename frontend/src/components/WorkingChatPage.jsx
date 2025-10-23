@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Container, Row, Col, Card, Button, Badge, Alert, Spinner, Modal, Form } from 'react-bootstrap';
 import { useAuth } from '../contexts/AuthContext';
+import ChatRoomInterface from './ChatRoomInterface';
 
 const WorkingChatPage = () => {
   const { user, token } = useAuth();
@@ -10,6 +11,11 @@ const WorkingChatPage = () => {
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newRoom, setNewRoom] = useState({ name: '', description: '', auto_approve: true });
+  const [showRequestsModal, setShowRequestsModal] = useState(false);
+  const [pendingRequests, setPendingRequests] = useState([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [activeChatRoom, setActiveChatRoom] = useState(null);
+  const [notification, setNotification] = useState(null);
   
   // Fetch rooms function
   const fetchRooms = async () => {
@@ -24,7 +30,7 @@ const WorkingChatPage = () => {
     
     try {
       console.log('Fetching rooms with token...');
-      const response = await fetch('http://localhost:8000/api/chat/', {
+      const response = await fetch('http://localhost:8000/api/notifications/rooms/', {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -54,7 +60,7 @@ const WorkingChatPage = () => {
     if (!newRoom.name.trim()) return;
     
     try {
-      const response = await fetch('http://localhost:8000/api/chat/create/', {
+      const response = await fetch('http://localhost:8000/api/notifications/rooms/', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -83,10 +89,85 @@ const WorkingChatPage = () => {
     }
   };
 
+  // Fetch pending requests for a room
+  const fetchPendingRequests = async (roomId) => {
+    setRequestsLoading(true);
+    try {
+      const response = await fetch(`http://localhost:8000/api/notifications/rooms/${roomId}/pending_requests/`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setPendingRequests(data);
+      } else {
+        console.error('Failed to fetch pending requests');
+        setPendingRequests([]);
+      }
+    } catch (err) {
+      console.error('Error fetching pending requests:', err);
+      setPendingRequests([]);
+    } finally {
+      setRequestsLoading(false);
+    }
+  };
+
+  // Approve join request
+  const approveRequest = async (roomId, requestId) => {
+    try {
+      const response = await fetch(`http://localhost:8000/api/notifications/rooms/${roomId}/approve_request/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ request_id: requestId })
+      });
+      
+      if (response.ok) {
+        alert('Request approved successfully! The user can now join the chat.');
+        await fetchPendingRequests(roomId); // Refresh requests
+        await fetchRooms(); // Refresh rooms to update participant count
+      } else {
+        const errorData = await response.json();
+        alert(`Failed to approve request: ${errorData.detail || 'Unknown error'}`);
+      }
+    } catch (err) {
+      alert(`Error approving request: ${err.message}`);
+    }
+  };
+
+  // Deny join request
+  const denyRequest = async (roomId, requestId) => {
+    try {
+      const response = await fetch(`http://localhost:8000/api/notifications/rooms/${roomId}/deny_request/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ request_id: requestId })
+      });
+      
+      if (response.ok) {
+        alert('Request denied.');
+        await fetchPendingRequests(roomId); // Refresh requests
+      } else {
+        const errorData = await response.json();
+        alert(`Failed to deny request: ${errorData.detail || 'Unknown error'}`);
+      }
+    } catch (err) {
+      alert(`Error denying request: ${err.message}`);
+    }
+  };
+
   // Join room function
   const joinRoom = async (roomId) => {
     try {
-      const response = await fetch(`http://localhost:8000/api/chat/${roomId}/join/`, {
+      const response = await fetch(`http://localhost:8000/api/notifications/rooms/${roomId}/join/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -96,7 +177,16 @@ const WorkingChatPage = () => {
       
       if (response.ok) {
         await fetchRooms(); // Refresh rooms list
-        alert('Join request sent successfully!');
+        const room = rooms.find(r => r.id === roomId);
+        
+        if (room?.auto_approve) {
+          // Auto-approved, redirect to chat
+          setActiveChatRoom(room);
+          alert('Welcome to the room! You can now start chatting.');
+        } else {
+          // Manual approval needed
+          alert('Join request sent successfully! You will be notified when approved.');
+        }
       } else {
         const errorData = await response.json();
         alert(`Failed to join room: ${errorData.detail || 'Unknown error'}`);
@@ -106,11 +196,95 @@ const WorkingChatPage = () => {
     }
   };
 
+  // Fetch all pending requests count for teacher's rooms
+  const fetchAllPendingRequestsCount = async () => {
+    if (user?.role !== 'teacher') return;
+    
+    const teacherRooms = rooms.filter(room => room.creator === user.id);
+    let totalPending = 0;
+    
+    for (const room of teacherRooms) {
+      try {
+        const response = await fetch(`http://localhost:8000/api/notifications/rooms/${room.id}/pending_requests/`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          totalPending += data.length;
+        }
+      } catch (err) {
+        console.error('Error fetching requests for room:', room.id, err);
+      }
+    }
+    
+    return totalPending;
+  };
+
+  // Check for notifications (for approved join requests)
+  const checkNotifications = async () => {
+    try {
+      const response = await fetch('http://localhost:8000/api/notifications/', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const chatNotifications = data.results?.filter(notif => 
+          notif.notification_type === 'chat' && 
+          !notif.is_read &&
+          notif.data?.action_type === 'request_approved'
+        ) || [];
+        
+        if (chatNotifications.length > 0) {
+          const approval = chatNotifications[0];
+          const roomId = approval.data?.room_id;
+          const roomName = approval.data?.room_name;
+          
+          if (roomId && roomName) {
+            // Mark notification as read
+            await fetch(`http://localhost:8000/api/notifications/${approval.id}/`, {
+              method: 'PATCH',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ is_read: true })
+            });
+            
+            // Show approval message and offer to enter room
+            const enterRoom = window.confirm(`Great! Your request to join "${roomName}" has been approved. Would you like to enter the room now?`);
+            if (enterRoom) {
+              await fetchRooms(); // Refresh rooms first
+              const room = rooms.find(r => r.id === roomId);
+              if (room) {
+                setActiveChatRoom(room);
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error checking notifications:', err);
+    }
+  };
+
   // Load rooms when component mounts or user/token changes
   useEffect(() => {
     if (user && token) {
       console.log('User and token available, fetching rooms');
       fetchRooms();
+      
+      // Check for notifications every 10 seconds
+      const notificationInterval = setInterval(checkNotifications, 10000);
+      
+      return () => clearInterval(notificationInterval);
     } else {
       console.log('No user or token, clearing rooms');
       setRooms([]);
@@ -130,6 +304,16 @@ const WorkingChatPage = () => {
     );
   }
 
+  // Show chat interface if a room is active
+  if (activeChatRoom) {
+    return (
+      <ChatRoomInterface 
+        room={activeChatRoom} 
+        onBack={() => setActiveChatRoom(null)}
+      />
+    );
+  }
+
   return (
     <Container fluid className="py-4">
       {/* Header */}
@@ -141,13 +325,22 @@ const WorkingChatPage = () => {
               <p className="text-muted">Welcome, {user.first_name || user.username}! ({user.role})</p>
             </div>
             {user.role === 'teacher' && (
-              <Button 
-                variant="success" 
-                onClick={() => setShowCreateModal(true)}
-                disabled={loading}
-              >
-                ➕ Create Room
-              </Button>
+              <div className="d-flex gap-2">
+                <Button 
+                  variant="success" 
+                  onClick={() => setShowCreateModal(true)}
+                  disabled={loading}
+                >
+                  ➕ Create Room
+                </Button>
+                <Button 
+                  variant="info" 
+                  onClick={() => setShowRequestsModal(true)}
+                  disabled={loading}
+                >
+                  📋 View Requests
+                </Button>
+              </div>
             )}
           </div>
         </Col>
@@ -188,29 +381,43 @@ const WorkingChatPage = () => {
                         {room.auto_approve && (
                           <Badge bg="info">Auto Join</Badge>
                         )}
+                        {room.creator === user.id && !room.auto_approve && (
+                          <Badge bg="warning" className="ms-1">Manual Approval</Badge>
+                        )}
                       </div>
                     </Card.Title>
                     
                     <Card.Text>{room.description}</Card.Text>
                     
                     <div className="small text-muted mb-3">
-                      <div><strong>Host:</strong> {room.host?.username}</div>
-                      <div><strong>Participants:</strong> {room.participants?.length || 0}/{room.max_participants}</div>
+                      <div><strong>Creator:</strong> {room.creator_name}</div>
+                      <div><strong>Participants:</strong> {room.participant_count || 0}/{room.max_participants}</div>
                       <div><strong>Type:</strong> {room.room_type}</div>
                     </div>
 
-                    <div className="d-grid">
-                      {room.host?.id === user.id ? (
-                        <Button variant="warning" size="sm">
-                          👑 Your Room
-                        </Button>
-                      ) : room.participants?.some(p => p.id === user.id) ? (
+                    <div className="d-grid gap-2">
+                      {room.creator === user.id ? (
+                        <>
+                          <Button 
+                            variant="success" 
+                            size="sm"
+                            onClick={() => setActiveChatRoom(room)}
+                          >
+                            � Enter Your Room
+                          </Button>
+                          <Badge bg="warning" className="text-center">👑 You're the Host</Badge>
+                        </>
+                      ) : room.is_participant ? (
                         <Button 
                           variant="success" 
                           size="sm"
-                          onClick={() => setSelectedRoom(room)}
+                          onClick={() => setActiveChatRoom(room)}
                         >
                           💬 Enter Chat
+                        </Button>
+                      ) : room.has_pending_request ? (
+                        <Button variant="warning" size="sm" disabled>
+                          ⏳ Request Pending
                         </Button>
                       ) : room.is_active ? (
                         <Button 
@@ -297,6 +504,104 @@ const WorkingChatPage = () => {
         </Modal.Footer>
       </Modal>
 
+      {/* Join Requests Modal */}
+      <Modal show={showRequestsModal} onHide={() => setShowRequestsModal(false)} size="lg">
+        <Modal.Header closeButton>
+          <Modal.Title>📋 Pending Join Requests</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <div className="mb-3">
+            <p className="text-muted">
+              Manage join requests for your rooms. Students who want to join will appear here.
+            </p>
+          </div>
+
+          {requestsLoading ? (
+            <div className="text-center py-3">
+              <Spinner animation="border" size="sm" />
+              <span className="ms-2">Loading requests...</span>
+            </div>
+          ) : (
+            <Row>
+              {/* List rooms created by teacher */}
+              {rooms
+                .filter(room => room.creator === user.id)
+                .map(room => (
+                  <Col md={12} key={room.id} className="mb-3">
+                    <Card>
+                      <Card.Header className="d-flex justify-content-between align-items-center">
+                        <h6 className="mb-0">🏠 {room.name}</h6>
+                        <Button 
+                          size="sm" 
+                          variant="outline-primary"
+                          onClick={() => fetchPendingRequests(room.id)}
+                        >
+                          🔄 Refresh
+                        </Button>
+                      </Card.Header>
+                      <Card.Body>
+                        <div id={`requests-${room.id}`}>
+                          {pendingRequests
+                            .filter(req => rooms.find(r => r.id === room.id))
+                            .length === 0 ? (
+                            <small className="text-muted">No pending requests for this room</small>
+                          ) : (
+                            pendingRequests.map(request => (
+                              <div key={request.id} className="d-flex justify-content-between align-items-center border-bottom py-2">
+                                <div>
+                                  <strong>{request.user_name}</strong> 
+                                  <Badge bg="secondary" className="ms-2">{request.user_role}</Badge>
+                                  {request.message && (
+                                    <div>
+                                      <small className="text-muted">Message: "{request.message}"</small>
+                                    </div>
+                                  )}
+                                  <small className="text-muted d-block">
+                                    Requested: {new Date(request.created_at).toLocaleString()}
+                                  </small>
+                                </div>
+                                <div className="d-flex gap-2">
+                                  <Button 
+                                    size="sm" 
+                                    variant="success"
+                                    onClick={() => approveRequest(room.id, request.id)}
+                                  >
+                                    ✅ Approve
+                                  </Button>
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline-danger"
+                                    onClick={() => denyRequest(room.id, request.id)}
+                                  >
+                                    ❌ Deny
+                                  </Button>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </Card.Body>
+                    </Card>
+                  </Col>
+                ))}
+              
+              {rooms.filter(room => room.creator === user.id).length === 0 && (
+                <Col md={12}>
+                  <Alert variant="info">
+                    You haven't created any rooms yet. Create a room to start receiving join requests!
+                  </Alert>
+                </Col>
+              )}
+            </Row>
+          )}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowRequestsModal(false)}>
+            Close
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
       {/* Room Display */}
       {selectedRoom && (
         <Alert variant="success" className="mt-4">
@@ -306,6 +611,23 @@ const WorkingChatPage = () => {
             Back to Rooms
           </Button>
         </Alert>
+      )}
+
+      {/* Toast Notification */}
+      {notification && (
+        <div 
+          className="position-fixed top-0 end-0 m-3" 
+          style={{ zIndex: 9999 }}
+        >
+          <Alert 
+            variant={notification.type || 'info'} 
+            dismissible 
+            onClose={() => setNotification(null)}
+          >
+            <strong>{notification.title}</strong>
+            {notification.message && <div>{notification.message}</div>}
+          </Alert>
+        </div>
       )}
     </Container>
   );

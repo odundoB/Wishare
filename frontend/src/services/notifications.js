@@ -131,14 +131,52 @@ export class NotificationWebSocket {
   }
 
   /**
-   * Connect to the notification WebSocket
+   * Test if WebSocket server is available
    */
-  connect() {
+  async testWebSocketAvailability() {
+    return new Promise((resolve) => {
+      try {
+        const testWs = new WebSocket('ws://localhost:8002/ws/test/');
+        testWs.onopen = () => {
+          testWs.close();
+          resolve(true);
+        };
+        testWs.onerror = () => {
+          resolve(false);
+        };
+        testWs.onclose = () => {
+          resolve(false);
+        };
+        
+        // Timeout after 2 seconds
+        setTimeout(() => {
+          if (testWs.readyState === WebSocket.CONNECTING) {
+            testWs.close();
+            resolve(false);
+          }
+        }, 2000);
+      } catch (error) {
+        resolve(false);
+      }
+    });
+  }
+
+  /**
+   * Connect to the notification WebSocket (with availability check)
+   */
+  async connect() {
     try {
       const token = localStorage.getItem('access_token')
       if (!token) {
-        this.onError('No authentication token found')
+        console.warn('No authentication token found for notification WebSocket')
         return
+      }
+
+      // First test if WebSocket server is available
+      const isAvailable = await this.testWebSocketAvailability();
+      if (!isAvailable) {
+        console.log('Notification WebSocket server not available, using REST API only');
+        return;
       }
 
       const wsUrl = `ws://localhost:8002/ws/notifications/?token=${token}`
@@ -156,32 +194,37 @@ export class NotificationWebSocket {
           this.onNotification(data)
         } catch (error) {
           console.error('Error parsing notification WebSocket message:', error)
-          this.onError('Error parsing notification message')
+          this.onError && this.onError('Error parsing notification message')
         }
       }
 
       this.ws.onclose = (event) => {
-        console.log('Notification WebSocket disconnected:', event)
+        console.log('Notification WebSocket disconnected (using REST API fallback):', event)
         this.onDisconnect && this.onDisconnect(event)
         
-        // Attempt to reconnect if not a normal closure
+        // Attempt to reconnect if not a normal closure (but only if server was available)
         if (event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
           this.reconnectAttempts++
-          setTimeout(() => {
-            console.log(`Attempting to reconnect notification WebSocket... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`)
-            this.connect()
+          setTimeout(async () => {
+            const stillAvailable = await this.testWebSocketAvailability();
+            if (stillAvailable) {
+              console.log(`Attempting to reconnect notification WebSocket... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`)
+              this.connect()
+            } else {
+              console.log('Notification WebSocket server still unavailable, using REST API only');
+            }
           }, this.reconnectInterval * this.reconnectAttempts)
         }
       }
 
       this.ws.onerror = (error) => {
-        console.error('Notification WebSocket error:', error)
-        this.onError(error)
+        console.log('Notification WebSocket error (fallback to REST API):', error)
+        // Don't call onError for connection issues since REST API is available
       }
 
     } catch (error) {
-      console.error('Error creating notification WebSocket connection:', error)
-      this.onError(error)
+      console.log('Error creating notification WebSocket connection (using REST API fallback):', error)
+      // Don't call onError for connection issues since REST API is available
     }
   }
 
@@ -195,7 +238,8 @@ export class NotificationWebSocket {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(command))
     } else {
-      this.onError('Notification WebSocket is not connected')
+      console.log('Notification WebSocket not connected, command ignored (using REST API instead)')
+      // Don't call onError since REST API is available as fallback
     }
   }
 

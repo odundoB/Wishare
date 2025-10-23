@@ -22,7 +22,6 @@ urlpatterns = [
     path('api/resources/', include('resources.urls')),
     path('api/notifications/', include('notifications.urls')),
     path('api/search/', include('search.urls')),
-    path('api/chat/', include('chat.urls')),
 ]
 
 # Serve media files during development

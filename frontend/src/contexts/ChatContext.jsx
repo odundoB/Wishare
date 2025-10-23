@@ -280,8 +280,8 @@ export const ChatProvider = ({ children }) => {
     }
   };
 
-  // Connect to WebSocket
-  const connectToRoom = (roomId) => {
+  // Connect to WebSocket (with availability check)
+  const connectToRoom = async (roomId) => {
     if (state.websocket) {
       state.websocket.close();
     }
@@ -292,50 +292,66 @@ export const ChatProvider = ({ children }) => {
       return;
     }
 
-    const wsUrl = chatAPI.getWebSocketUrl(roomId, token);
-    const ws = new WebSocket(wsUrl);
-
-    ws.onopen = () => {
-      console.log('Connected to chat room:', roomId);
-      dispatch({ type: 'SET_CONNECTED', payload: true });
-    };
-
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
+    try {
+      // First test if WebSocket server is available
+      const isWebSocketAvailable = await chatAPI.testWebSocketConnection();
       
-      if (data.type === 'chat_message') {
-        dispatch({ type: 'ADD_MESSAGE', payload: data.message });
-      } else if (data.type === 'system') {
-        dispatch({ 
-          type: 'ADD_MESSAGE', 
-          payload: {
-            id: Date.now(),
-            content: data.message,
-            message_type: 'system',
-            timestamp: data.timestamp,
-            sender: null
-          }
-        });
+      if (!isWebSocketAvailable) {
+        console.log('WebSocket server not available, using REST API only');
+        dispatch({ type: 'SET_CONNECTED', payload: false });
+        return;
       }
-    };
 
-    ws.onclose = (event) => {
-      console.log('Disconnected from chat room:', event.code, event.reason);
+      const wsUrl = chatAPI.getWebSocketUrl(roomId, token);
+      const ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        console.log('Connected to chat room:', roomId);
+        dispatch({ type: 'SET_CONNECTED', payload: true });
+      };
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'chat_message') {
+          dispatch({ type: 'ADD_MESSAGE', payload: data.message });
+        } else if (data.type === 'system') {
+          dispatch({ 
+            type: 'ADD_MESSAGE', 
+            payload: {
+              id: Date.now(),
+              content: data.message,
+              message_type: 'system',
+              timestamp: data.timestamp,
+              sender: null
+            }
+          });
+        }
+      };
+
+      ws.onclose = (event) => {
+        console.log('Disconnected from chat room:', event.code, event.reason);
+        dispatch({ type: 'SET_CONNECTED', payload: false });
+        
+        // Don't show error for normal closure
+        if (event.code !== 1000) {
+          console.warn('WebSocket closed unexpectedly (fallback to REST):', event.code, event.reason);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.log('WebSocket error (using REST API fallback):', error);
+        dispatch({ type: 'SET_CONNECTED', payload: false });
+        // Don't dispatch error for WebSocket issues as they're often temporary
+        // dispatch({ type: 'SET_ERROR', payload: 'Connection error' });
+      };
+
+      dispatch({ type: 'SET_WEBSOCKET', payload: ws });
+      
+    } catch (error) {
+      console.log('WebSocket connection failed (fallback to REST API):', error);
       dispatch({ type: 'SET_CONNECTED', payload: false });
-      
-      // Don't show error for normal closure
-      if (event.code !== 1000) {
-        console.warn('WebSocket closed unexpectedly:', event.code, event.reason);
-      }
-    };
-
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      // Don't dispatch error for WebSocket issues as they're often temporary
-      // dispatch({ type: 'SET_ERROR', payload: 'Connection error' });
-    };
-
-    dispatch({ type: 'SET_WEBSOCKET', payload: ws });
+    }
   };
 
   // Send message
