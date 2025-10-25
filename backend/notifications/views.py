@@ -11,6 +11,7 @@ from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q, Count
 from django.utils import timezone
+from django.contrib.contenttypes.models import ContentType
 from datetime import timedelta
 
 from .models import Notification
@@ -651,7 +652,8 @@ class ChatMessageSerializer(serializers.ModelSerializer):
     class Meta:
         model = ChatMessage
         fields = ['id', 'message', 'message_type', 'created_at', 'user_id', 'user_username', 'user_name', 'user_role', 
-                 'is_edited', 'edited_at', 'reply_to', 'reply_to_data', 'is_private', 'reactions', 'reactions_formatted']
+                 'is_edited', 'edited_at', 'reply_to', 'reply_to_data', 'is_private', 'reactions', 'reactions_formatted',
+                 'audio_file', 'duration', 'file_attachment', 'file_type', 'file_size', 'original_filename']
         read_only_fields = ['id', 'created_at', 'user_id', 'user_username', 'user_name', 'user_role', 'reply_to_data', 'reactions_formatted']
     
     def get_reply_to_data(self, obj):
@@ -686,14 +688,16 @@ class ChatMessageSerializer(serializers.ModelSerializer):
 
 class PrivateMessageSerializer(serializers.ModelSerializer):
     """Serializer for private messages."""
+    sender_id = serializers.IntegerField(source='sender.id', read_only=True)
     sender_name = serializers.CharField(source='sender.get_full_name', read_only=True)
     sender_username = serializers.CharField(source='sender.username', read_only=True)
     
     class Meta:
         model = PrivateMessage
-        fields = ['id', 'message', 'sender', 'sender_name', 'sender_username', 
-                 'is_read', 'read_at', 'created_at', 'edited_at', 'is_edited', 'reactions']
-        read_only_fields = ['id', 'sender', 'created_at', 'read_at']
+        fields = ['id', 'message', 'message_type', 'sender_id', 'sender_name', 'sender_username', 
+                 'is_read', 'read_at', 'created_at', 'edited_at', 'is_edited', 'reactions',
+                 'audio_file', 'duration', 'file_attachment', 'file_type', 'file_size', 'original_filename']
+        read_only_fields = ['id', 'sender_id', 'sender_name', 'sender_username', 'created_at', 'read_at']
 
 
 class PrivateChatRoomSerializer(serializers.ModelSerializer):
@@ -954,19 +958,26 @@ class ChatRoomViewSet(viewsets.ModelViewSet):
         Notification.objects.create(
             recipient=join_request.user,
             actor=request.user,
-            verb=f'approved your request to join "{room.name}"',
+            verb=f'approved your request to join "{room.name}". Click to enter the room.',
             content_type=ContentType.objects.get_for_model(ChatRoom),
             object_id=room.id,
             notification_type='chat',
             data={
                 'room_id': room.id,
                 'room_name': room.name,
-                'action_type': 'request_approved'
+                'action_type': 'request_approved',
+                'auto_join': True,
+                'redirect_url': f'/chat-room/{room.id}',
+                'room_access_granted': True
             }
         )
         
         return Response(
-            {'detail': 'Join request approved successfully!'},
+            {
+                'detail': 'Join request approved successfully!',
+                'user_name': join_request.user.get_full_name() or join_request.user.username,
+                'room_name': room.name
+            },
             status=status.HTTP_200_OK
         )
     
@@ -1079,6 +1090,129 @@ class ChatRoomViewSet(viewsets.ModelViewSet):
         serializer = ChatMessageSerializer(message)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
     
+    @action(detail=True, methods=['post'])
+    def send_voice_message(self, request, pk=None):
+        """Send a voice message to a room (participants only)."""
+        room = self.get_object()
+        
+        # Check if user is a participant or room creator
+        if not (room.participants.filter(user=request.user, is_active=True).exists() or 
+                room.creator == request.user):
+            return Response(
+                {'detail': 'You must be a participant to send messages.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Check if audio file is provided
+        audio_file = request.FILES.get('audio')
+        if not audio_file:
+            return Response(
+                {'detail': 'Audio file is required for voice messages.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get duration (optional) with maximum limit validation
+        duration = request.data.get('duration', 0)
+        try:
+            duration = int(duration) if duration else 0
+            # Enforce maximum duration of 3 minutes (180 seconds)
+            if duration > 180:
+                return Response(
+                    {'detail': 'Voice message duration cannot exceed 3 minutes (180 seconds).'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except (ValueError, TypeError):
+            duration = 0
+        
+        # Create the voice message
+        message = ChatMessage.objects.create(
+            room=room,
+            user=request.user,
+            message=f"Voice message ({duration}s)" if duration > 0 else "Voice message",
+            message_type='voice',
+            audio_file=audio_file,
+            duration=duration
+        )
+        
+        serializer = ChatMessageSerializer(message)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    
+    @action(detail=True, methods=['post'])
+    def send_file_message(self, request, pk=None):
+        """Send a file message to a room (participants only)."""
+        print("=== FILE UPLOAD REQUEST ===")
+        print(f"Request method: {request.method}")
+        print(f"Room ID (pk): {pk}")
+        print(f"User: {request.user}")
+        print(f"Request data: {request.data}")
+        print(f"Request files: {request.FILES}")
+        print(f"Request headers: {dict(request.headers)}")
+        
+        room = self.get_object()
+        print(f"Room object: {room}")
+        
+        # Check if user is a participant or room creator
+        is_participant = room.participants.filter(user=request.user, is_active=True).exists()
+        is_creator = room.creator == request.user
+        print(f"Is participant: {is_participant}")
+        print(f"Is creator: {is_creator}")
+        
+        if not (is_participant or is_creator):
+            print("Access denied: User is not a participant or creator")
+            return Response(
+                {'detail': 'You must be a participant to send messages.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Check if file is provided
+        file_attachment = request.FILES.get('file')
+        print(f"File attachment: {file_attachment}")
+        if not file_attachment:
+            print("ERROR: No file found in request")
+            return Response(
+                {'detail': 'File is required for file messages.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Get file type
+        file_type = request.data.get('file_type', 'document')
+        print(f"File type from request: {file_type}")
+        if file_type not in ['media', 'document']:
+            print(f"ERROR: Invalid file type: {file_type}")
+            return Response(
+                {'detail': 'Invalid file type. Must be "media" or "document".'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validate file size (max 50MB)
+        max_file_size = 50 * 1024 * 1024  # 50MB in bytes
+        print(f"File size: {file_attachment.size} bytes (max: {max_file_size})")
+        if file_attachment.size > max_file_size:
+            print(f"ERROR: File too large: {file_attachment.size} > {max_file_size}")
+            return Response(
+                {'detail': 'File size cannot exceed 50MB.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Create the file message
+        print("Creating file message...")
+        message = ChatMessage.objects.create(
+            room=room,
+            user=request.user,
+            message=f"📎 {file_attachment.name}",
+            message_type='file',
+            file_attachment=file_attachment,
+            file_type=file_type,
+            file_size=file_attachment.size,
+            original_filename=file_attachment.name
+        )
+        print(f"File message created successfully: {message.id}")
+        
+        serializer = ChatMessageSerializer(message)
+        print(f"Serialized data: {serializer.data}")
+        print("=== FILE UPLOAD SUCCESS ===")
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    
     @action(detail=True, methods=['get'])
     def participants(self, request, pk=None):
         """Get participants for a room (participants only)."""
@@ -1162,12 +1296,11 @@ class ChatRoomViewSet(viewsets.ModelViewSet):
         serializer = ChatMessageSerializer(message)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-    @action(detail=True, methods=['patch'], url_path='messages/(?P<message_id>[^/.]+)')
+    @action(detail=True, methods=['patch', 'put'], url_path='edit-message/(?P<message_id>[^/.]+)')
     def edit_message(self, request, pk=None, message_id=None):
         """Edit a message (own messages only)."""
-        room = self.get_object()
-        
         try:
+            room = self.get_object()
             message = ChatMessage.objects.get(id=message_id, room=room, user=request.user)
         except ChatMessage.DoesNotExist:
             return Response(
@@ -1190,12 +1323,11 @@ class ChatRoomViewSet(viewsets.ModelViewSet):
         serializer = ChatMessageSerializer(message)
         return Response(serializer.data)
 
-    @action(detail=True, methods=['delete'], url_path='messages/(?P<message_id>[^/.]+)')
+    @action(detail=True, methods=['delete'], url_path='delete-message/(?P<message_id>[^/.]+)')
     def delete_message(self, request, pk=None, message_id=None):
         """Delete a message."""
-        room = self.get_object()
-        
         try:
+            room = self.get_object()
             message = ChatMessage.objects.get(id=message_id, room=room)
         except ChatMessage.DoesNotExist:
             return Response(
@@ -1222,7 +1354,7 @@ class ChatRoomViewSet(viewsets.ModelViewSet):
         
         return Response({'detail': 'Message deleted successfully.'})
 
-    @action(detail=True, methods=['post'], url_path='messages/(?P<message_id>[^/.]+)/react')
+    @action(detail=True, methods=['post'], url_path='add-reaction/(?P<message_id>[^/.]+)')
     def add_reaction(self, request, pk=None, message_id=None):
         """Add emoji reaction to a message."""
         room = self.get_object()
@@ -1252,7 +1384,7 @@ class ChatRoomViewSet(viewsets.ModelViewSet):
         
         # For simplicity, we'll store reactions in the message's metadata
         # In a production app, you'd have a separate Reaction model
-        if not hasattr(message, 'reactions'):
+        if not message.reactions:
             message.reactions = {}
         
         if emoji not in message.reactions:
@@ -1262,9 +1394,9 @@ class ChatRoomViewSet(viewsets.ModelViewSet):
             message.reactions[emoji].append(request.user.id)
             message.save()
         
-        return Response({'detail': 'Reaction added successfully.'})
+        return Response({'detail': 'Reaction added successfully.', 'message_id': message.id, 'emoji': emoji})
 
-    @action(detail=True, methods=['delete'], url_path='messages/(?P<message_id>[^/.]+)/react')
+    @action(detail=True, methods=['delete'], url_path='remove-reaction/(?P<message_id>[^/.]+)')
     def remove_reaction(self, request, pk=None, message_id=None):
         """Remove emoji reaction from a message."""
         room = self.get_object()
@@ -1285,14 +1417,14 @@ class ChatRoomViewSet(viewsets.ModelViewSet):
             )
         
         # Remove user's reaction
-        if hasattr(message, 'reactions') and emoji in message.reactions:
+        if message.reactions and emoji in message.reactions:
             if request.user.id in message.reactions[emoji]:
                 message.reactions[emoji].remove(request.user.id)
                 if not message.reactions[emoji]:  # Remove empty emoji lists
                     del message.reactions[emoji]
                 message.save()
         
-        return Response({'detail': 'Reaction removed successfully.'})
+        return Response({'detail': 'Reaction removed successfully.', 'message_id': message.id, 'emoji': emoji})
 
     @action(detail=True, methods=['post'])
     def remove_participant(self, request, pk=None):
@@ -1398,57 +1530,68 @@ class ChatRoomViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def end_meeting(self, request, pk=None):
         """End the meeting (host only) - permanently deletes the room."""
-        room = self.get_object()
-        
-        # Check if current user is host (creator or moderator)
-        is_host = (
-            room.creator == request.user or
-            room.participants.filter(user=request.user, is_moderator=True, is_active=True).exists()
-        )
-        
-        if not is_host:
+        try:
+            room = self.get_object()
+            
+            # Check if current user is host (creator or moderator)
+            is_host = (
+                room.creator == request.user or
+                room.participants.filter(user=request.user, is_moderator=True, is_active=True).exists()
+            )
+            
+            if not is_host:
+                return Response(
+                    {'detail': 'Only hosts can end meetings.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Store room info before deletion for notifications
+            room_name = room.name
+            room_id = room.id
+            
+            # Get all participants before deletion (excluding the host)
+            try:
+                participants = room.participants.filter(is_active=True).exclude(user=request.user)
+                participant_users = [p.user for p in participants]
+            except Exception as e:
+                print(f"Error getting participants: {e}")
+                participant_users = []
+            
+            # Notify all participants that the meeting has ended BEFORE deletion
+            try:
+                for participant in participant_users:
+                    Notification.objects.create(
+                        recipient=participant,
+                        actor=request.user,
+                        verb=f'ended and deleted the meeting "{room_name}"',
+                        notification_type='chat',
+                        data={
+                            'room_id': room_id,
+                            'room_name': room_name,
+                            'action_type': 'meeting_deleted',
+                            'message': f'The meeting "{room_name}" has been permanently deleted by the host.'
+                        }
+                    )
+            except Exception as e:
+                print(f"Error creating notifications: {e}")
+                # Continue with deletion even if notifications fail
+            
+            # Permanently delete the room and all related data
+            # This will cascade delete: participants, messages, join_requests, reactions
+            room.delete()
+            
+            return Response({
+                'detail': 'Meeting ended and deleted successfully.',
+                'room_name': room_name,
+                'deleted': True
+            })
+            
+        except Exception as e:
+            print(f"Error in end_meeting: {e}")
             return Response(
-                {'detail': 'Only hosts can end meetings.'},
-                status=status.HTTP_403_FORBIDDEN
+                {'detail': f'Failed to end meeting: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-        
-        # Store room info before deletion for notifications
-        room_name = room.name
-        room_id = room.id
-        
-        # Get all participants before deletion (excluding the host)
-        participants = room.participants.filter(is_active=True).exclude(user=request.user)
-        participant_users = [p.user for p in participants]
-        
-        # Notify all participants that the meeting has ended BEFORE deletion
-        from .models import Notification
-        from django.contrib.contenttypes.models import ContentType
-        
-        for participant in participant_users:
-            Notification.objects.create(
-                recipient=participant,
-                actor=request.user,
-                verb=f'ended and deleted the meeting "{room_name}"',
-                content_type=ContentType.objects.get_for_model(ChatRoom),
-                object_id=None,  # Room will be deleted, so no object_id
-                notification_type='chat',
-                data={
-                    'room_id': room_id,
-                    'room_name': room_name,
-                    'action_type': 'meeting_deleted',
-                    'message': f'The meeting "{room_name}" has been permanently deleted by the host.'
-                }
-            )
-        
-        # Permanently delete the room and all related data
-        # This will cascade delete: participants, messages, join_requests, reactions
-        room.delete()
-        
-        return Response({
-            'detail': 'Meeting ended and deleted successfully.',
-            'room_name': room_name,
-            'deleted': True
-        })
 
 
 class PrivateChatRoomViewSet(viewsets.ModelViewSet):
@@ -1508,7 +1651,14 @@ class PrivateChatRoomViewSet(viewsets.ModelViewSet):
         # Verify users are participants in the public room
         try:
             public_room = ChatRoom.objects.get(id=public_room_id)
-            if not public_room.participants.filter(user=request.user, is_active=True).exists():
+            
+            # Check if current user is participant or creator
+            current_user_is_participant = (
+                public_room.participants.filter(user=request.user, is_active=True).exists() or
+                public_room.creator == request.user
+            )
+            
+            if not current_user_is_participant:
                 return Response(
                     {'detail': 'You are not a participant in this room.'},
                     status=status.HTTP_403_FORBIDDEN
@@ -1518,7 +1668,13 @@ class PrivateChatRoomViewSet(viewsets.ModelViewSet):
             User = get_user_model()
             other_user = User.objects.get(id=other_user_id)
             
-            if not public_room.participants.filter(user=other_user, is_active=True).exists():
+            # Check if other user is participant or creator
+            other_user_is_participant = (
+                public_room.participants.filter(user=other_user, is_active=True).exists() or
+                public_room.creator == other_user
+            )
+            
+            if not other_user_is_participant:
                 return Response(
                     {'detail': 'The other user is not a participant in this room.'},
                     status=status.HTTP_400_BAD_REQUEST
@@ -1610,6 +1766,139 @@ class PrivateChatRoomViewSet(viewsets.ModelViewSet):
                 'public_room_name': private_chat.public_room.name,
                 'message_preview': message_text[:50],
                 'action_type': 'private_message_received'
+            }
+        )
+        
+        serializer = PrivateMessageSerializer(private_message)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'])
+    def send_voice_message(self, request, pk=None):
+        """Send a voice message in a private chat room."""
+        private_chat = self.get_object()
+        
+        # Check if audio file is provided
+        audio_file = request.FILES.get('audio')
+        if not audio_file:
+            return Response(
+                {'detail': 'Audio file is required for voice messages.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get duration (optional) with maximum limit validation
+        duration = request.data.get('duration', 0)
+        try:
+            duration = int(duration) if duration else 0
+            # Enforce maximum duration of 3 minutes (180 seconds)
+            if duration > 180:
+                return Response(
+                    {'detail': 'Voice message duration cannot exceed 3 minutes (180 seconds).'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except (ValueError, TypeError):
+            duration = 0
+        
+        # Create the private voice message
+        private_message = PrivateMessage.objects.create(
+            private_chat=private_chat,
+            sender=request.user,
+            message=f"Voice message ({duration}s)" if duration > 0 else "Voice message",
+            message_type='voice',
+            audio_file=audio_file,
+            duration=duration
+        )
+        
+        # Update the private chat room timestamp
+        private_chat.updated_at = timezone.now()
+        private_chat.save()
+        
+        # Create notification for the other user
+        other_user = private_chat.get_other_user(request.user)
+        from .models import Notification
+        from django.contrib.contenttypes.models import ContentType
+        
+        Notification.objects.create(
+            recipient=other_user,
+            actor=request.user,
+            verb=f'sent you a voice message in "{private_chat.public_room.name}"',
+            content_type=ContentType.objects.get_for_model(PrivateMessage),
+            object_id=private_message.id,
+            notification_type='private_message',
+            data={
+                'private_chat_id': private_chat.id,
+                'public_room_id': private_chat.public_room.id,
+                'public_room_name': private_chat.public_room.name,
+                'message_preview': f'Voice message ({duration}s)' if duration > 0 else 'Voice message',
+                'action_type': 'private_voice_message_received'
+            }
+        )
+        
+        serializer = PrivateMessageSerializer(private_message)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'])
+    def send_file_message(self, request, pk=None):
+        """Send a file message in a private chat room."""
+        private_chat = self.get_object()
+        
+        # Check if file is provided
+        file_attachment = request.FILES.get('file')
+        if not file_attachment:
+            return Response(
+                {'detail': 'File is required for file messages.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get file type
+        file_type = request.data.get('file_type', 'document')
+        if file_type not in ['media', 'document']:
+            return Response(
+                {'detail': 'Invalid file type. Must be "media" or "document".'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate file size (max 50MB)
+        max_file_size = 50 * 1024 * 1024  # 50MB in bytes
+        if file_attachment.size > max_file_size:
+            return Response(
+                {'detail': 'File size cannot exceed 50MB.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Create the private file message
+        private_message = PrivateMessage.objects.create(
+            private_chat=private_chat,
+            sender=request.user,
+            message=f"📎 {file_attachment.name}",
+            message_type='file',
+            file_attachment=file_attachment,
+            file_type=file_type,
+            file_size=file_attachment.size,
+            original_filename=file_attachment.name
+        )
+        
+        # Update the private chat room timestamp
+        private_chat.updated_at = timezone.now()
+        private_chat.save()
+        
+        # Create notification for the other user
+        other_user = private_chat.get_other_user(request.user)
+        from .models import Notification
+        from django.contrib.contenttypes.models import ContentType
+        
+        Notification.objects.create(
+            recipient=other_user,
+            actor=request.user,
+            verb=f'sent you a file in "{private_chat.public_room.name}"',
+            content_type=ContentType.objects.get_for_model(PrivateMessage),
+            object_id=private_message.id,
+            notification_type='private_message',
+            data={
+                'private_chat_id': private_chat.id,
+                'public_room_id': private_chat.public_room.id,
+                'public_room_name': private_chat.public_room.name,
+                'message_preview': f'📎 {file_attachment.name}',
+                'action_type': 'private_file_message_received'
             }
         )
         

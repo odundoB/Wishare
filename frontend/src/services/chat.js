@@ -49,18 +49,18 @@ const chatAPI = {
     api.post(`/notifications/rooms/${roomId}/send_reply/`, messageData),
 
   editMessage: (roomId, messageId, newText) => 
-    api.patch(`/notifications/rooms/${roomId}/messages/${messageId}/`, { message: newText }),
+    api.patch(`/notifications/rooms/${roomId}/edit-message/${messageId}/`, { message: newText }),
 
   deleteMessage: (roomId, messageId, deleteForAll = false) => 
-    api.delete(`/notifications/rooms/${roomId}/messages/${messageId}/`, { 
+    api.delete(`/notifications/rooms/${roomId}/delete-message/${messageId}/`, { 
       data: { delete_for_all: deleteForAll }
     }),
 
   addReaction: (roomId, messageId, emoji) => 
-    api.post(`/notifications/rooms/${roomId}/messages/${messageId}/react/`, { emoji }),
+    api.post(`/notifications/rooms/${roomId}/add-reaction/${messageId}/`, { emoji }),
 
   removeReaction: (roomId, messageId, emoji) => 
-    api.delete(`/notifications/rooms/${roomId}/messages/${messageId}/react/`, { 
+    api.delete(`/notifications/rooms/${roomId}/remove-reaction/${messageId}/`, { 
       data: { emoji }
     }),
 
@@ -89,6 +89,48 @@ const chatAPI = {
 
   sendPrivateChatMessage: (privateChatId, message) =>
     api.post(`/notifications/private-chats/${privateChatId}/send_message/`, { message }),
+
+  // Voice message endpoints
+  sendVoiceMessage: (roomId, audioBlob, duration) => {
+    const formData = new FormData();
+    formData.append('audio', audioBlob, 'voice-message.wav');
+    formData.append('duration', duration);
+    formData.append('message_type', 'voice');
+    return api.post(`/notifications/rooms/${roomId}/send_voice_message/`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+  },
+
+  sendPrivateVoiceMessage: (privateChatId, audioBlob, duration) => {
+    const formData = new FormData();
+    formData.append('audio', audioBlob, 'voice-message.wav');
+    formData.append('duration', duration);
+    formData.append('message_type', 'voice');
+    return api.post(`/notifications/private-chats/${privateChatId}/send_voice_message/`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+  },
+
+  // File message endpoints
+  sendFileMessage: (roomId, formData) => {
+    return api.post(`/notifications/rooms/${roomId}/send_file_message/`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+  },
+
+  sendPrivateFileMessage: (privateChatId, formData) => {
+    return api.post(`/notifications/private-chats/${privateChatId}/send_file_message/`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+  },
   
   getRoomParticipants: (roomId) => api.get(`/notifications/rooms/${roomId}/participants/`),
 

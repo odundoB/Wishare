@@ -23,8 +23,6 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const checkAuth = async () => {
       console.log('🔐 AuthContext - Starting authentication check...');
-      const tokensInfo = tokenManager.getTokensInfo()
-      console.log('🔐 AuthContext - Tokens info:', tokensInfo);
       
       // Add timeout to prevent infinite loading
       const timeout = setTimeout(() => {
@@ -33,21 +31,16 @@ export const AuthProvider = ({ children }) => {
       }, 10000); // 10 second timeout
       
       try {
-        // First check if we have valid tokens
-        if (!tokenManager.areTokensValid()) {
-          console.log('🔐 AuthContext - No valid tokens found');
-          tokenManager.clearTokens()
+        // Simple token check
+        const accessToken = localStorage.getItem('access_token')
+        const refreshToken = localStorage.getItem('refresh_token')
+        
+        if (!accessToken || !refreshToken) {
+          console.log('🔐 AuthContext - No tokens found');
           setUser(null)
           setIsAuthenticated(false)
           setToken(null)
           return
-        }
-
-        const storedToken = localStorage.getItem('access_token')
-        
-        // If access token is expired but refresh is valid, let the API interceptor handle it
-        if (tokensInfo.accessExpired && !tokensInfo.refreshExpired) {
-          console.log('🔐 AuthContext - Access token expired, but refresh token is valid');
         }
         
         console.log('🔐 AuthContext - Getting profile...');
@@ -57,12 +50,13 @@ export const AuthProvider = ({ children }) => {
         
         setUser(response.data)
         setIsAuthenticated(true)
-        setToken(localStorage.getItem('access_token')) // Get the potentially refreshed token
+        setToken(accessToken)
         
       } catch (error) {
         console.log('🔐 AuthContext - Auth failed:', error.message);
         // Clear invalid tokens
-        tokenManager.clearTokens()
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('refresh_token')
         setUser(null)
         setIsAuthenticated(false)
         setToken(null)
@@ -81,12 +75,13 @@ export const AuthProvider = ({ children }) => {
       const response = await authAPI.login(credentials)
       const { access, refresh } = response.data
       
-      // Store tokens
+      // Store tokens directly - simple approach
       localStorage.setItem('access_token', access)
       localStorage.setItem('refresh_token', refresh)
       
       // Get user profile
       const profileResponse = await getProfile()
+      
       setUser(profileResponse.data)
       setIsAuthenticated(true)
       setToken(access)
@@ -138,8 +133,9 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.error('Logout error:', error)
     } finally {
-      // Clear tokens and user data
-      tokenManager.clearTokens()
+      // Clear tokens and user data - simple approach
+      localStorage.removeItem('access_token')
+      localStorage.removeItem('refresh_token')
       setUser(null)
       setIsAuthenticated(false)
       setToken(null)
@@ -148,8 +144,9 @@ export const AuthProvider = ({ children }) => {
 
   const forceLogout = () => {
     console.log('🔐 AuthContext - Force logout due to invalid tokens');
-    // Clear tokens and user data immediately without API call
-    tokenManager.clearTokens()
+    // Clear tokens and user data immediately without API call - simple approach
+    localStorage.removeItem('access_token')
+    localStorage.removeItem('refresh_token')
     setUser(null)
     setIsAuthenticated(false)
     setToken(null)

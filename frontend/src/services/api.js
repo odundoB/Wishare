@@ -3,7 +3,7 @@ import { tokenManager } from '../utils/tokenManager'
 
 // Create reusable axios instance with automatic backend connection
 const api = axios.create({
-  baseURL: 'http://localhost:8000/api',
+  baseURL: 'http://127.0.0.1:8000/api',
   headers: {
     'Content-Type': 'application/json',
   },
@@ -37,11 +37,10 @@ api.interceptors.response.use(
 
       // Check if we have valid refresh token before attempting refresh
       const refreshToken = localStorage.getItem('refresh_token')
-      const tokensInfo = tokenManager.getTokensInfo()
       
-      console.log('🔄 401 Error - Token refresh attempt:', tokensInfo)
+      console.log('🔄 401 Error - Token refresh attempt, refresh token exists:', !!refreshToken)
       
-      if (refreshToken && !tokensInfo.refreshExpired) {
+      if (refreshToken) {
         try {
           // Create a new axios instance to avoid interceptor loops
           const refreshResponse = await axios.post('http://localhost:8000/api/token/refresh/', {
@@ -53,11 +52,15 @@ api.interceptors.response.use(
           })
 
           const { access, refresh: newRefresh } = refreshResponse.data
+          
+          // Store refreshed tokens
           localStorage.setItem('access_token', access)
+          if (newRefresh) {
+            localStorage.setItem('refresh_token', newRefresh)
+          }
           
           // Update refresh token if a new one was provided (token rotation)
           if (newRefresh) {
-            localStorage.setItem('refresh_token', newRefresh)
             console.log('🔄 Tokens refreshed successfully with rotation')
           } else {
             console.log('🔄 Access token refreshed successfully')
@@ -71,30 +74,17 @@ api.interceptors.response.use(
           console.log('❌ Token refresh failed:', refreshError.response?.status, refreshError.response?.data)
           
           // Clear invalid tokens
-          tokenManager.clearTokens()
-          
-          // Only redirect if we're not already on the login page
-          if (window.location.pathname !== '/' && window.location.pathname !== '/login') {
-            console.log('🔀 Redirecting to login due to refresh failure')
-            window.location.href = '/'
-          }
+          localStorage.removeItem('access_token')
+          localStorage.removeItem('refresh_token')
           
           return Promise.reject(refreshError)
         }
       } else {
-        console.log('❌ No valid refresh token available:', {
-          hasRefresh: !!refreshToken,
-          refreshExpired: tokensInfo.refreshExpired
-        })
+        console.log('❌ No refresh token available')
         
         // Clear invalid tokens
-        tokenManager.clearTokens()
-        
-        // Only redirect if we're not already on the login page
-        if (window.location.pathname !== '/' && window.location.pathname !== '/login') {
-          console.log('🔀 Redirecting to login due to invalid refresh token')
-          window.location.href = '/'
-        }
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('refresh_token')
         
         return Promise.reject(error)
       }

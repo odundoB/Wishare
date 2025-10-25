@@ -78,16 +78,49 @@ const Events = () => {
     try {
       setCreating(true)
       setError('')
+      
       console.log('Creating event with data:', formData)
-      console.log('User role:', user?.role)
       const response = await createEvent(formData)
-      console.log('Event created successfully:', response.data)
+      console.log('Event creation response:', response)
+      
       setShowCreateModal(false)
       fetchEvents()
+      
     } catch (err) {
       console.error('Event creation error:', err)
       console.error('Error response:', err.response?.data)
-      setError('Failed to create event: ' + (err.response?.data?.detail || err.message))
+      console.error('Error status:', err.response?.status)
+      console.error('Error headers:', err.response?.headers)
+      
+      let errorMessage = 'Failed to create event'
+      
+      if (err.response?.data) {
+        if (typeof err.response.data === 'string') {
+          errorMessage += ': ' + err.response.data
+        } else if (err.response.data.detail) {
+          errorMessage += ': ' + err.response.data.detail
+        } else if (err.response.data.message) {
+          errorMessage += ': ' + err.response.data.message
+        } else {
+          // Handle validation errors
+          const validationErrors = []
+          Object.keys(err.response.data).forEach(field => {
+            const fieldErrors = err.response.data[field]
+            if (Array.isArray(fieldErrors)) {
+              validationErrors.push(`${field}: ${fieldErrors.join(', ')}`)
+            } else {
+              validationErrors.push(`${field}: ${fieldErrors}`)
+            }
+          })
+          if (validationErrors.length > 0) {
+            errorMessage += ':\n' + validationErrors.join('\n')
+          }
+        }
+      } else {
+        errorMessage += ': ' + err.message
+      }
+      
+      setError(errorMessage)
     } finally {
       setCreating(false)
     }
@@ -130,12 +163,12 @@ const Events = () => {
 
   const handleView = (event) => {
     // TODO: Implement event detail view
-    console.log('View event:', event)
+    // View event details
   }
 
   const handleEdit = (event) => {
     // TODO: Implement event edit functionality
-    console.log('Edit event:', event)
+    // Edit event
   }
 
   const canEditEvent = (event) => {

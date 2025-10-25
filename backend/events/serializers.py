@@ -195,10 +195,11 @@ class EventCreateSerializer(serializers.ModelSerializer):
         if not value:
             raise serializers.ValidationError("Start time is required.")
         
-        # Check if start time is in the past (allow some tolerance for timezone issues)
+        # Check if start time is in the past (allow more tolerance for timezone issues)
         now = timezone.now()
-        if value < now - timedelta(minutes=5):
-            raise serializers.ValidationError("Start time cannot be in the past.")
+        # Allow events to be created up to 30 minutes in the past to handle timezone differences
+        if value < now - timedelta(minutes=30):
+            raise serializers.ValidationError("Start time cannot be more than 30 minutes in the past.")
         
         return value
     

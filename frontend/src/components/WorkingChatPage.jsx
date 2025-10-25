@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Container, Row, Col, Card, Button, Badge, Alert, Spinner, Modal, Form } from 'react-bootstrap';
 import { useAuth } from '../contexts/AuthContext';
 import ChatRoomInterface from './ChatRoomInterface';
+import chatAPI from '../services/chat';
 
 const WorkingChatPage = () => {
   const { user, token } = useAuth();
@@ -29,19 +30,10 @@ const WorkingChatPage = () => {
     setError(null);
     
     try {
-      console.log('Fetching rooms with token...');
-      const response = await fetch('http://localhost:8000/api/notifications/rooms/', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      console.log('Fetching rooms with chatAPI...');
+      const response = await chatAPI.getRooms();
       
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
+      const data = response.data;
       const roomsList = data.results || data;
       
       console.log('Rooms fetched successfully:', roomsList.length);
@@ -93,7 +85,7 @@ const WorkingChatPage = () => {
   const fetchPendingRequests = async (roomId) => {
     setRequestsLoading(true);
     try {
-      const response = await fetch(`http://localhost:8000/api/notifications/rooms/${roomId}/pending_requests/`, {
+      const response = await fetch(`http://127.0.0.1:8000/api/notifications/rooms/${roomId}/pending_requests/`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -118,7 +110,7 @@ const WorkingChatPage = () => {
   // Approve join request
   const approveRequest = async (roomId, requestId) => {
     try {
-      const response = await fetch(`http://localhost:8000/api/notifications/rooms/${roomId}/approve_request/`, {
+      const response = await fetch(`http://127.0.0.1:8000/api/notifications/rooms/${roomId}/approve_request/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -143,7 +135,7 @@ const WorkingChatPage = () => {
   // Deny join request
   const denyRequest = async (roomId, requestId) => {
     try {
-      const response = await fetch(`http://localhost:8000/api/notifications/rooms/${roomId}/deny_request/`, {
+      const response = await fetch(`http://127.0.0.1:8000/api/notifications/rooms/${roomId}/deny_request/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -167,7 +159,7 @@ const WorkingChatPage = () => {
   // Join room function
   const joinRoom = async (roomId) => {
     try {
-      const response = await fetch(`http://localhost:8000/api/notifications/rooms/${roomId}/join/`, {
+      const response = await fetch(`http://127.0.0.1:8000/api/notifications/rooms/${roomId}/join/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -205,7 +197,7 @@ const WorkingChatPage = () => {
     
     for (const room of teacherRooms) {
       try {
-        const response = await fetch(`http://localhost:8000/api/notifications/rooms/${room.id}/pending_requests/`, {
+        const response = await fetch(`http://127.0.0.1:8000/api/notifications/rooms/${room.id}/pending_requests/`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
@@ -227,7 +219,7 @@ const WorkingChatPage = () => {
   // Check for notifications (for approved join requests)
   const checkNotifications = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/notifications/', {
+      const response = await fetch('http://127.0.0.1:8000/api/notifications/', {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -249,7 +241,7 @@ const WorkingChatPage = () => {
           
           if (roomId && roomName) {
             // Mark notification as read
-            await fetch(`http://localhost:8000/api/notifications/${approval.id}/`, {
+            await fetch(`http://127.0.0.1:8000/api/notifications/${approval.id}/`, {
               method: 'PATCH',
               headers: {
                 'Authorization': `Bearer ${token}`,

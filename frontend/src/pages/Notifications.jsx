@@ -140,10 +140,34 @@ const Notifications = () => {
   }
 
   const handleView = (notification) => {
-    // TODO: Implement notification detail view or navigation to target
-    console.log('View notification:', notification)
+    // View notification
+    
+    // Mark as read if not already read
     if (!notification.is_read) {
       handleMarkRead(notification)
+    }
+
+    // Handle auto-join for approved room requests
+    if (notification.data?.action_type === 'request_approved' && notification.data?.auto_join) {
+      const roomId = notification.data.room_id
+      const roomName = notification.data.room_name
+      
+      // Show confirmation and auto-redirect to room
+      if (window.confirm(`Your request to join "${roomName}" has been approved! Would you like to enter the room now?`)) {
+        // Navigate to the chat room
+        window.location.href = `/chat-room/${roomId}`
+      }
+      return
+    }
+
+    // Handle other notification types
+    if (notification.data?.redirect_url) {
+      window.location.href = notification.data.redirect_url
+    } else if (notification.target_object?.url) {
+      window.location.href = notification.target_object.url
+    } else {
+      // Default: just show notification details
+      alert(`Notification: ${notification.verb}\nFrom: ${notification.actor?.username || 'System'}`)
     }
   }
 

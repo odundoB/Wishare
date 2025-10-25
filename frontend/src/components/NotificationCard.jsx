@@ -33,8 +33,14 @@ const NotificationCard = ({
     }
   }
 
-  const getNotificationIcon = (verb) => {
-    switch (verb.toLowerCase()) {
+  const getNotificationIcon = (notification) => {
+    // Special handling for room approval notifications
+    if (notification.data?.action_type === 'request_approved') {
+      return '🎉'
+    }
+    
+    const verb = notification.verb.toLowerCase()
+    switch (verb) {
       case 'created':
       case 'uploaded':
         return '📄'
@@ -47,6 +53,8 @@ const NotificationCard = ({
       case 'liked':
       case 'favorited':
         return '❤️'
+      case 'approved':
+        return '🎉'
       case 'shared':
         return '🔗'
       case 'updated':
@@ -80,7 +88,7 @@ const NotificationCard = ({
         <div className="d-flex justify-content-between align-items-start mb-2">
           <div className="d-flex align-items-center">
             <span className="text-primary me-2 fs-4">
-              {getNotificationIcon(notification.verb)}
+              {getNotificationIcon(notification)}
             </span>
             {!notification.is_read && (
               <Badge bg="primary" className="me-2">
@@ -148,13 +156,30 @@ const NotificationCard = ({
             )}
           </div>
           <div className="d-flex gap-1">
-            <Button
-              variant="outline-primary"
-              size="sm"
-              onClick={() => onView(notification)}
-            >
-              👁️ View
-            </Button>
+            {/* Special button for auto-join room notifications */}
+            {notification.data?.action_type === 'request_approved' && notification.data?.auto_join ? (
+              <Button
+                variant="success"
+                size="sm"
+                onClick={() => {
+                  const roomId = notification.data.room_id
+                  const roomName = notification.data.room_name
+                  if (window.confirm(`Enter "${roomName}" room now?`)) {
+                    window.location.href = `/chat-room/${roomId}`
+                  }
+                }}
+              >
+                🚪 Enter Room
+              </Button>
+            ) : (
+              <Button
+                variant="outline-primary"
+                size="sm"
+                onClick={() => onView(notification)}
+              >
+                👁️ View
+              </Button>
+            )}
             {notification.is_read ? (
               <Button
                 variant="outline-secondary"

@@ -3,6 +3,9 @@ import { Container, Row, Col, Card, Button, Form, Badge, ListGroup, InputGroup }
 import { useAuth } from '../contexts/AuthContext';
 import chatAPI from '../services/chat';
 
+// Maximum recording duration in seconds (3 minutes)
+const MAX_RECORDING_DURATION = 180;
+
 const ChatRoomInterface = ({ room, onBack }) => {
   const { user, token } = useAuth();
   const [messages, setMessages] = useState([]);
@@ -25,8 +28,30 @@ const ChatRoomInterface = ({ room, onBack }) => {
   const [privateChats, setPrivateChats] = useState([]);
   const [currentPrivateChat, setCurrentPrivateChat] = useState(null);
   const [privateChatNotifications, setPrivateChatNotifications] = useState({});
+  const [isRecording, setIsRecording] = useState(false);
+  const [showAttachments, setShowAttachments] = useState(false);
+  const [isPrivateRecording, setIsPrivateRecording] = useState(false);
+  const [showPrivateAttachments, setShowPrivateAttachments] = useState(false);
+  const [recordedAudio, setRecordedAudio] = useState(null);
+  const [recordedPrivateAudio, setRecordedPrivateAudio] = useState(null);
+  const [showVoicePreview, setShowVoicePreview] = useState(false);
+  const [showPrivateVoicePreview, setShowPrivateVoicePreview] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const [privateRecordingDuration, setPrivateRecordingDuration] = useState(0);
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [selectedPrivateFiles, setSelectedPrivateFiles] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [privateUploading, setPrivateUploading] = useState(false);
   const messagesEndRef = useRef(null);
   const websocketRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const privateMediaRecorderRef = useRef(null);
+  const recordingTimerRef = useRef(null);
+  const privateRecordingTimerRef = useRef(null);
+  const audioPreviewRef = useRef(null);
+  const privateAudioPreviewRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const privateFileInputRef = useRef(null);
 
   // Check if current user is the host of this room
   const isCurrentUserHost = () => {
@@ -55,21 +80,34 @@ const ChatRoomInterface = ({ room, onBack }) => {
       const roomMessages = messagesResponse.data.map(msg => ({
         id: msg.id,
         user: { 
-          username: msg.user_name || 'System', 
+          id: msg.user_id,
+          username: msg.user_username || 'System',
+          displayName: msg.user_name || msg.user_username || 'System',
           role: msg.user_role || 'system' 
         },
         message: msg.message,
         timestamp: msg.created_at,
         type: msg.message_type,
+        message_type: msg.message_type,
+        audio_file: msg.audio_file,
+        duration: msg.duration,
         is_edited: msg.is_edited,
-        edited_at: msg.edited_at
+        edited_at: msg.edited_at,
+        replyTo: msg.reply_to_data,
+        isPrivate: msg.is_private,
+        reactions: msg.reactions_formatted || []
       }));
 
       // Add join message for current user if no messages exist
       if (roomMessages.length === 0) {
         roomMessages.push({
           id: 'welcome',
-          user: { username: 'system', role: 'system' },
+          user: { 
+            id: 'system',
+            username: 'System',
+            displayName: 'System',
+            role: 'system' 
+          },
           message: `Welcome to ${room.name}! Start the conversation.`,
           timestamp: new Date().toISOString(),
           type: 'system'
@@ -96,7 +134,12 @@ const ChatRoomInterface = ({ room, onBack }) => {
       // Fallback to basic welcome message
       setMessages([{
         id: 'error',
-        user: { username: 'system', role: 'system' },
+        user: { 
+          id: 'system',
+          username: 'System',
+          displayName: 'System',
+          role: 'system' 
+        },
         message: 'Welcome to the room! You can start chatting now.',
         timestamp: new Date().toISOString(),
         type: 'system'
@@ -117,7 +160,6 @@ const ChatRoomInterface = ({ room, onBack }) => {
   const initializeRealTimeUpdates = () => {
     try {
       setConnected(true);
-      console.log(`Connected to room ${room.id} chat`);
       
       // Poll for new messages every 3 seconds
       const messageInterval = setInterval(() => {
@@ -166,6 +208,147 @@ const ChatRoomInterface = ({ room, onBack }) => {
     }
   };
 
+  // Handle file upload for public chat
+  // Test function to verify upload API
+  const testFileUpload = async () => {
+    console.log('=== TESTING FILE UPLOAD API ===');
+    
+    // Create a test file
+    const testFile = new Blob(['This is a test file content'], { type: 'text/plain' });
+    testFile.name = 'test.txt';
+    
+    const formData = new FormData();
+    formData.append('file', testFile);
+    formData.append('file_type', 'document');
+    
+    console.log('Test file created, calling API...');
+    
+    try {
+      const response = await chatAPI.sendFileMessage(room.id, formData);
+      console.log('Test upload successful:', response);
+      alert('Test upload successful!');
+    } catch (error) {
+      console.error('Test upload failed:', error);
+      alert(`Test upload failed: ${error.response?.data?.detail || error.message}`);
+    }
+  };
+
+  const handleUploadFiles = async () => {
+    if (selectedFiles.length === 0) {
+      console.log('No files selected for upload');
+      return;
+    }
+    
+    console.log('=== STARTING FILE UPLOAD ===');
+    console.log('Selected files:', selectedFiles);
+    console.log('Room object:', room);
+    console.log('User object:', user);
+    
+    // Check if user and room are available
+    if (!user) {
+      alert('Error: User not authenticated');
+      return;
+    }
+    
+    if (!room || !room.id) {
+      alert('Error: Room not available');
+      return;
+    }
+    
+    // Check authentication token
+    const token = localStorage.getItem('access_token');
+    console.log('Access token available:', !!token);
+    console.log('Token starts with:', token ? token.substring(0, 20) + '...' : 'N/A');
+    
+    setUploading(true);
+    
+    try {
+      for (const fileItem of selectedFiles) {
+        console.log('=== PROCESSING FILE ===');
+        console.log('File item:', fileItem);
+        console.log('File object:', fileItem.file);
+        console.log('File name:', fileItem.file.name);
+        console.log('File size:', fileItem.file.size);
+        console.log('File type (frontend):', fileItem.type);
+        
+        const formData = new FormData();
+        formData.append('file', fileItem.file);  // Backend expects 'file'
+        const fileTypeForBackend = fileItem.type === 'media' ? 'media' : 'document';
+        formData.append('file_type', fileTypeForBackend);
+        
+        console.log('=== FORMDATA CONTENTS ===');
+        console.log('File type for backend:', fileTypeForBackend);
+        console.log('FormData entries:');
+        for (let [key, value] of formData.entries()) {
+          console.log(`  ${key}:`, value);
+        }
+        
+        console.log('=== API CALL ===');
+        console.log('Room ID:', room.id);
+        console.log('Calling chatAPI.sendFileMessage...');
+        
+        const response = await chatAPI.sendFileMessage(room.id, formData);
+        console.log('=== SUCCESS ===');
+        console.log('Upload response:', response);
+        console.log('Response data:', response.data);
+      }
+      
+      // Clear selected files and refresh messages
+      setSelectedFiles([]);
+      console.log('Refreshing messages...');
+      await fetchMessages();
+      console.log('=== UPLOAD COMPLETE ===');
+      
+    } catch (error) {
+      console.error('=== UPLOAD ERROR ===');
+      console.error('Error object:', error);
+      console.error('Error message:', error.message);
+      console.error('Error response:', error.response);
+      console.error('Error response data:', error.response?.data);
+      console.error('Error response status:', error.response?.status);
+      console.error('Error response headers:', error.response?.headers);
+      alert(`Failed to upload files: ${error.response?.data?.detail || error.message}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Handle file upload for private chat
+  const handlePrivateUploadFiles = async () => {
+    if (selectedPrivateFiles.length === 0 || !selectedPrivateChat) return;
+    
+    console.log('Starting private file upload. Selected files:', selectedPrivateFiles);
+    setPrivateUploading(true);
+    
+    try {
+      for (const fileItem of selectedPrivateFiles) {
+        console.log('Processing private file item:', fileItem);
+        const formData = new FormData();
+        formData.append('file', fileItem.file);  // Backend expects 'file'
+        const fileTypeForBackend = fileItem.type === 'media' ? 'media' : 'document';
+        formData.append('file_type', fileTypeForBackend);
+        
+        console.log('Sending private FormData with file_type:', fileTypeForBackend);
+        console.log('Private chat ID:', selectedPrivateChat.id);
+        
+        const response = await chatAPI.sendPrivateFileMessage(selectedPrivateChat.id, formData);
+        console.log('Private upload response:', response);
+      }
+      
+      // Clear selected files and refresh private messages
+      setSelectedPrivateFiles([]);
+      await loadPrivateChatMessages(selectedPrivateChat.id);
+      console.log('Private files uploaded successfully and messages refreshed');
+      
+    } catch (error) {
+      console.error('Error uploading private files:', error);
+      console.error('Error response:', error.response);
+      alert(`Failed to upload private files: ${error.response?.data?.detail || error.message}`);
+    } finally {
+      setPrivateUploading(false);
+    }
+  };
+
   // Fetch messages only (for refreshing)
   const fetchMessages = async () => {
     try {
@@ -181,6 +364,13 @@ const ChatRoomInterface = ({ room, onBack }) => {
         message: msg.message,
         timestamp: msg.created_at,
         type: msg.message_type,
+        message_type: msg.message_type,
+        audio_file: msg.audio_file,
+        duration: msg.duration,
+        file_attachment: msg.file_attachment,
+        file_type: msg.file_type,
+        file_size: msg.file_size,
+        original_filename: msg.original_filename,
         is_edited: msg.is_edited,
         edited_at: msg.edited_at,
         replyTo: msg.reply_to_data,
@@ -220,6 +410,8 @@ const ChatRoomInterface = ({ room, onBack }) => {
       return response.data;
     } catch (err) {
       console.error('Error creating private chat:', err);
+      console.error('Error response:', err.response?.data);
+      console.error('Error status:', err.response?.status);
       throw err;
     }
   };
@@ -228,7 +420,37 @@ const ChatRoomInterface = ({ room, onBack }) => {
   const loadPrivateChatMessages = async (privateChatId) => {
     try {
       const response = await chatAPI.getPrivateChatMessages(privateChatId);
-      setPrivateMessages(response.data);
+      
+      // Transform backend data to match frontend expectations
+      const transformedMessages = response.data.map(msg => ({
+        id: msg.id,
+        message: msg.message,
+        timestamp: msg.created_at,
+        message_type: msg.message_type,
+        audio_file: msg.audio_file,
+        duration: msg.duration,
+        file_attachment: msg.file_attachment,
+        file_type: msg.file_type,
+        file_size: msg.file_size,
+        original_filename: msg.original_filename,
+        user: {
+          id: msg.sender_id,
+          username: msg.sender_username,
+          displayName: msg.sender_name || msg.sender_username
+        },
+        isOwn: msg.sender_id === user.id,
+        is_read: msg.is_read,
+        edited_at: msg.edited_at,
+        is_edited: msg.is_edited
+      }));
+      
+      // Preserve any temporary/optimistic messages that are still sending
+      setPrivateMessages(prevMessages => {
+        const tempMessages = prevMessages.filter(msg => 
+          msg.id.toString().startsWith('temp-') && msg.is_sending
+        );
+        return [...transformedMessages, ...tempMessages];
+      });
       
       // Clear notification for this chat
       setPrivateChatNotifications(prev => {
@@ -238,19 +460,46 @@ const ChatRoomInterface = ({ room, onBack }) => {
       });
     } catch (err) {
       console.error('Error loading private messages:', err);
+      console.error('Error details:', err.response?.data);
     }
   };
 
   // Send private chat message
   const sendPrivateChatMessage = async (privateChatId, message) => {
     try {
-      await chatAPI.sendPrivateChatMessage(privateChatId, message);
-      // Reload messages to show the new one
+      // Optimistic update - add message immediately to UI
+      const optimisticMessage = {
+        id: `temp-${Date.now()}`, // Temporary ID
+        message: message,
+        timestamp: new Date().toISOString(),
+        user: {
+          id: user.id,
+          username: user.username,
+          displayName: user.full_name || user.username
+        },
+        isOwn: true,
+        is_read: false,
+        is_sending: true // Flag to show as sending
+      };
+      
+      setPrivateMessages(prevMessages => [...prevMessages, optimisticMessage]);
+      
+      const response = await chatAPI.sendPrivateChatMessage(privateChatId, message);
+      
+      // Replace optimistic message with real message from server
       await loadPrivateChatMessages(privateChatId);
+      
       // Refresh private chats to update last message
       await fetchPrivateChats();
     } catch (err) {
       console.error('Error sending private message:', err);
+      console.error('Error details:', err.response?.data);
+      
+      // Remove the optimistic message on failure
+      setPrivateMessages(prevMessages => 
+        prevMessages.filter(msg => !msg.id.toString().startsWith('temp-'))
+      );
+      
       throw err;
     }
   };
@@ -267,6 +516,45 @@ const ChatRoomInterface = ({ room, onBack }) => {
       };
     }
   }, [room, user]);
+
+  // Polling for private chat messages when modal is open
+  useEffect(() => {
+    let privateChatInterval;
+    
+    if (showPrivateChat && currentPrivateChat) {
+      // Poll for new private messages every 1 second for real-time feel
+      privateChatInterval = setInterval(() => {
+        loadPrivateChatMessages(currentPrivateChat.id);
+      }, 1000);
+    }
+    
+    return () => {
+      if (privateChatInterval) {
+        clearInterval(privateChatInterval);
+      }
+    };
+  }, [showPrivateChat, currentPrivateChat]);
+
+  // Cleanup audio URLs when component unmounts or audio changes
+  useEffect(() => {
+    return () => {
+      // Cleanup main chat recorded audio
+      if (recordedAudio?.url) {
+        URL.revokeObjectURL(recordedAudio.url);
+      }
+      // Cleanup private chat recorded audio
+      if (recordedPrivateAudio?.url) {
+        URL.revokeObjectURL(recordedPrivateAudio.url);
+      }
+      // Clear recording timers
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
+      if (privateRecordingTimerRef.current) {
+        clearInterval(privateRecordingTimerRef.current);
+      }
+    };
+  }, [recordedAudio, recordedPrivateAudio]);
 
   const formatTimestamp = (timestamp) => {
     return new Date(timestamp).toLocaleTimeString([], { 
@@ -373,19 +661,42 @@ const ChatRoomInterface = ({ room, onBack }) => {
     setEditingMessage(message.id);
     setEditText(message.message);
     setShowDropdown(null);
+    
+    // Auto-focus the edit input after it renders
+    setTimeout(() => {
+      const editInput = document.querySelector(`input[data-editing-id="${message.id}"]`);
+      if (editInput) {
+        editInput.focus();
+        editInput.select(); // Select all text for easy editing
+      }
+    }, 100);
   };
 
   const handleSaveEdit = async (messageId) => {
+    const trimmedText = editText.trim();
+    
+    if (!trimmedText) {
+      alert('Message cannot be empty');
+      return;
+    }
+    
+    if (trimmedText === messages.find(m => m.id === messageId)?.message) {
+      // No changes made, just cancel edit
+      handleCancelEdit();
+      return;
+    }
+
     try {
       // API call to edit message
-      await chatAPI.editMessage(room.id, messageId, editText.trim());
+      await chatAPI.editMessage(room.id, messageId, trimmedText);
       // Refresh messages
       await fetchMessages();
       setEditingMessage(null);
       setEditText('');
     } catch (err) {
       console.error('Error editing message:', err);
-      alert('Failed to edit message');
+      const errorMsg = err.response?.data?.detail || 'Failed to edit message';
+      alert(`Error: ${errorMsg}`);
     }
   };
 
@@ -402,19 +713,39 @@ const ChatRoomInterface = ({ room, onBack }) => {
     }
     
     try {
+      setLoading(true);
       const response = await chatAPI.endMeeting(room.id);
       setShowEndMeetingModal(false);
       
-      // Show enhanced success message about deletion
+      // Show success message about deletion
       const roomName = response.data?.room_name || room.name;
-      alert(`Meeting "${roomName}" has been ended and permanently deleted from the system.`);
+      alert(`Meeting "${roomName}" has been ended and permanently deleted.\n\nAll participants have been notified.`);
       
-      // Navigate back to rooms list
-      if (onBack) onBack();
+      // Clear all room data
+      setMessages([]);
+      setParticipants([]);
+      setPrivateChats([]);
+      setPrivateMessages([]);
+      setPrivateChatNotifications({});
+      
+      // Navigate back to dashboard/rooms list
+      if (onBack) {
+        onBack();
+      } else {
+        // Fallback: redirect to dashboard based on user role
+        if (user.role === 'teacher') {
+          window.location.href = '/teacher-dashboard';
+        } else {
+          window.location.href = '/student-dashboard';
+        }
+      }
     } catch (err) {
       console.error('Error ending meeting:', err);
+      setShowEndMeetingModal(false);
       const errorMsg = err.response?.data?.detail || 'Failed to end meeting';
       alert(`Error: ${errorMsg}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -471,47 +802,342 @@ const ChatRoomInterface = ({ room, onBack }) => {
 
   const commonEmojis = ['👍', '❤️', '😂', '😮', '😢', '😡', '👏', '🔥'];
 
-  // Private chat functions
-  const loadPrivateMessages = async (userId) => {
+  // Voice recording functions
+  const startVoiceRecording = async () => {
     try {
-      // For demo purposes, we'll simulate loading private messages
-      // In a real app, you'd call an API endpoint
-      const mockPrivateMessages = [
-        {
-          id: 1,
-          user: { id: userId, username: privateChatUser?.username || 'User', displayName: privateChatUser?.displayName || 'User' },
-          message: "Hey! This is a private message.",
-          timestamp: new Date().toISOString(),
-          isOwn: false
-        },
-        {
-          id: 2,
-          user: { id: user.id, username: user.username, displayName: user.username },
-          message: "Hi there! Thanks for messaging me privately.",
-          timestamp: new Date().toISOString(),
-          isOwn: true
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      
+      const audioChunks = [];
+      mediaRecorder.ondataavailable = (event) => {
+        audioChunks.push(event.data);
+      };
+      
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+        const audioUrl = URL.createObjectURL(audioBlob);
+        setRecordedAudio({ blob: audioBlob, url: audioUrl });
+        setShowVoicePreview(true);
+        stream.getTracks().forEach(track => track.stop());
+        if (recordingTimerRef.current) {
+          clearInterval(recordingTimerRef.current);
         }
-      ];
-      setPrivateMessages(mockPrivateMessages);
+      };
+      
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingDuration(0);
+      
+      // Start duration timer
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDuration(prev => {
+          const newDuration = prev + 1;
+          // Auto-stop recording when reaching maximum duration
+          if (newDuration >= MAX_RECORDING_DURATION) {
+            stopVoiceRecording(true);
+            return MAX_RECORDING_DURATION;
+          }
+          return newDuration;
+        });
+      }, 1000);
+      
     } catch (err) {
-      console.error('Error loading private messages:', err);
+      console.error('Error starting voice recording:', err);
+      alert('Unable to access microphone. Please check permissions.');
     }
   };
 
+  const stopVoiceRecording = (autoStopped = false) => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      
+      if (autoStopped) {
+        setTimeout(() => {
+          alert('Recording automatically stopped after reaching maximum duration of 3 minutes.');
+        }, 100);
+      }
+    }
+  };
+
+  const startPrivateVoiceRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      privateMediaRecorderRef.current = mediaRecorder;
+      
+      const audioChunks = [];
+      mediaRecorder.ondataavailable = (event) => {
+        audioChunks.push(event.data);
+      };
+      
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+        const audioUrl = URL.createObjectURL(audioBlob);
+        setRecordedPrivateAudio({ blob: audioBlob, url: audioUrl });
+        setShowPrivateVoicePreview(true);
+        stream.getTracks().forEach(track => track.stop());
+        if (privateRecordingTimerRef.current) {
+          clearInterval(privateRecordingTimerRef.current);
+        }
+      };
+      
+      mediaRecorder.start();
+      setIsPrivateRecording(true);
+      setPrivateRecordingDuration(0);
+      
+      // Start duration timer
+      privateRecordingTimerRef.current = setInterval(() => {
+        setPrivateRecordingDuration(prev => {
+          const newDuration = prev + 1;
+          // Auto-stop recording when reaching maximum duration
+          if (newDuration >= MAX_RECORDING_DURATION) {
+            stopPrivateVoiceRecording(true);
+            return MAX_RECORDING_DURATION;
+          }
+          return newDuration;
+        });
+      }, 1000);
+      
+    } catch (err) {
+      console.error('Error starting private voice recording:', err);
+      alert('Unable to access microphone. Please check permissions.');
+    }
+  };
+
+  const stopPrivateVoiceRecording = (autoStopped = false) => {
+    if (privateMediaRecorderRef.current && privateMediaRecorderRef.current.state === 'recording') {
+      privateMediaRecorderRef.current.stop();
+      setIsPrivateRecording(false);
+      
+      if (autoStopped) {
+        setTimeout(() => {
+          alert('Recording automatically stopped after reaching maximum duration of 3 minutes.');
+        }, 100);
+      }
+    }
+  };
+
+  const handleVoiceMessage = async (audioBlob) => {
+    try {
+      setLoading(true);
+      await chatAPI.sendVoiceMessage(room.id, audioBlob, recordingDuration);
+      
+      // Add optimistic update for better UX
+      const optimisticMessage = {
+        id: `temp-voice-${Date.now()}`,
+        user: { 
+          id: user.id,
+          username: user.username,
+          displayName: user.get_full_name || user.username,
+          role: user.role || 'student'
+        },
+        message: `Voice message (${formatDuration(recordingDuration)})`,
+        timestamp: new Date().toISOString(),
+        type: 'voice',
+        message_type: 'voice',
+        audio_file: URL.createObjectURL(audioBlob),
+        duration: recordingDuration,
+        is_edited: false,
+        reactions: []
+      };
+      
+      setMessages(prevMessages => [...prevMessages, optimisticMessage]);
+      scrollToBottom();
+      
+    } catch (error) {
+      console.error('Error sending voice message:', error);
+      alert('Failed to send voice message. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePrivateVoiceMessage = async (audioBlob) => {
+    try {
+      setLoading(true);
+      await chatAPI.sendPrivateVoiceMessage(currentPrivateChat.id, audioBlob, privateRecordingDuration);
+      
+      // Add optimistic update for private chat
+      const optimisticMessage = {
+        id: `temp-private-voice-${Date.now()}`,
+        message: `Voice message (${formatDuration(privateRecordingDuration)})`,
+        timestamp: new Date().toISOString(),
+        message_type: 'voice',
+        audio_file: URL.createObjectURL(audioBlob),
+        duration: privateRecordingDuration,
+        user: {
+          id: user.id,
+          username: user.username,
+          displayName: user.get_full_name || user.username
+        },
+        isOwn: true,
+        is_read: false,
+        is_edited: false
+      };
+      
+      setPrivateMessages(prevMessages => [...prevMessages, optimisticMessage]);
+      
+    } catch (error) {
+      console.error('Error sending private voice message:', error);
+      alert('Failed to send private voice message. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const confirmVoiceMessage = () => {
+    if (recordedAudio) {
+      handleVoiceMessage(recordedAudio.blob);
+      deleteVoiceRecording();
+    }
+  };
+
+  const confirmPrivateVoiceMessage = () => {
+    if (recordedPrivateAudio) {
+      handlePrivateVoiceMessage(recordedPrivateAudio.blob);
+      deletePrivateVoiceRecording();
+    }
+  };
+
+  const deleteVoiceRecording = () => {
+    if (recordedAudio?.url) {
+      URL.revokeObjectURL(recordedAudio.url);
+    }
+    setRecordedAudio(null);
+    setShowVoicePreview(false);
+    setRecordingDuration(0);
+  };
+
+  const deletePrivateVoiceRecording = () => {
+    if (recordedPrivateAudio?.url) {
+      URL.revokeObjectURL(recordedPrivateAudio.url);
+    }
+    setRecordedPrivateAudio(null);
+    setShowPrivateVoicePreview(false);
+    setPrivateRecordingDuration(0);
+  };
+
+  const formatDuration = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const getAudioUrl = (audioFile) => {
+    if (!audioFile) return null;
+    // If it's already a full URL (blob or http), return as is
+    if (audioFile.startsWith('blob:') || audioFile.startsWith('http')) {
+      return audioFile;
+    }
+    // If it's a relative URL, construct full URL with backend base
+    return `http://127.0.0.1:8000${audioFile}`;
+  };
+
+  const handleAttachment = () => {
+    setShowAttachments(!showAttachments);
+  };
+
+  const handlePrivateAttachment = () => {
+    setShowPrivateAttachments(!showPrivateAttachments);
+  };
+
+  const handleMediaFiles = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.accept = "image/*,video/*";
+      fileInputRef.current.setAttribute('data-type', 'media');
+      fileInputRef.current.click();
+    }
+    setShowAttachments(false);
+  };
+
+  const handleDocumentFiles = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.accept = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar";
+      fileInputRef.current.setAttribute('data-type', 'document');
+      fileInputRef.current.click();
+    }
+    setShowAttachments(false);
+  };
+
+  const handlePrivateMediaFiles = () => {
+    if (privateFileInputRef.current) {
+      privateFileInputRef.current.accept = "image/*,video/*";
+      privateFileInputRef.current.setAttribute('data-type', 'media');
+      privateFileInputRef.current.click();
+    }
+    setShowPrivateAttachments(false);
+  };
+
+  const handlePrivateDocumentFiles = () => {
+    if (privateFileInputRef.current) {
+      privateFileInputRef.current.accept = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar";
+      privateFileInputRef.current.setAttribute('data-type', 'document');
+      privateFileInputRef.current.click();
+    }
+    setShowPrivateAttachments(false);
+  };
+
+  const handleFileSelect = (e) => {
+    const files = Array.from(e.target.files);
+    const fileType = e.target.getAttribute('data-type') || 'document';
+    
+    if (files.length > 0) {
+      const fileItems = files.map(file => ({ file, type: fileType }));
+      setSelectedFiles(prev => [...prev, ...fileItems]);
+    }
+    e.target.value = ''; // Reset input
+  };
+
+  const handlePrivateFileSelect = (e) => {
+    const files = Array.from(e.target.files);
+    const fileType = e.target.getAttribute('data-type') || 'document';
+    
+    if (files.length > 0) {
+      const fileItems = files.map(file => ({ file, type: fileType }));
+      setSelectedPrivateFiles(prev => [...prev, ...fileItems]);
+    }
+    e.target.value = ''; // Reset input
+  };
+
+  const removeFile = (index) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const removePrivateFile = (index) => {
+    setSelectedPrivateFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Private chat functions - using real API calls
   const sendPrivateMessage = async (e) => {
     e.preventDefault();
     if (!newPrivateMessage.trim() || !currentPrivateChat) return;
 
     const messageText = newPrivateMessage.trim();
-    setNewPrivateMessage('');
 
     try {
       // Send message using the new private chat system
       await sendPrivateChatMessage(currentPrivateChat.id, messageText);
+      // Only clear input if message was sent successfully
+      setNewPrivateMessage('');
     } catch (err) {
       console.error('Error sending private message:', err);
-      alert('Failed to send private message. Please try again.');
-      setNewPrivateMessage(messageText); // Restore message on error
+      console.error('Error response:', err.response?.data);
+      console.error('Error status:', err.response?.status);
+      
+      // Show more detailed error message
+      const errorMessage = err.response?.data?.detail || err.message || 'Failed to send private message. Please try again.';
+      alert(`Private message failed: ${errorMessage}`);
+      // Don't clear the input field so user can retry
     }
   };
 
@@ -645,27 +1271,144 @@ const ChatRoomInterface = ({ room, onBack }) => {
                                     type="text"
                                     value={editText}
                                     onChange={(e) => setEditText(e.target.value)}
-                                    onKeyPress={(e) => {
-                                      if (e.key === 'Enter') handleSaveEdit(msg.id);
-                                      if (e.key === 'Escape') handleCancelEdit();
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
+                                        handleSaveEdit(msg.id);
+                                      }
+                                      if (e.key === 'Escape') {
+                                        e.preventDefault();
+                                        handleCancelEdit();
+                                      }
                                     }}
+                                    data-editing-id={msg.id}
+                                    placeholder="Edit your message..."
                                     style={{ 
-                                      backgroundColor: 'rgba(255,255,255,0.2)', 
-                                      border: 'none',
-                                      color: 'white'
+                                      backgroundColor: 'rgba(255,255,255,0.95)', 
+                                      border: '2px solid #007bff',
+                                      color: '#333',
+                                      borderRadius: '8px',
+                                      padding: '8px 12px'
                                     }}
                                   />
-                                  <div className="mt-1">
-                                    <Button size="sm" variant="light" className="me-1" onClick={() => handleSaveEdit(msg.id)}>
-                                      Save
+                                  <div className="mt-2 d-flex gap-2">
+                                    <Button 
+                                      size="sm" 
+                                      variant="success" 
+                                      onClick={() => handleSaveEdit(msg.id)}
+                                      style={{
+                                        borderRadius: '6px',
+                                        fontWeight: '500'
+                                      }}
+                                    >
+                                      <i className="fas fa-check me-1"></i>Save
                                     </Button>
-                                    <Button size="sm" variant="secondary" onClick={handleCancelEdit}>
-                                      Cancel
+                                    <Button 
+                                      size="sm" 
+                                      variant="outline-light" 
+                                      onClick={handleCancelEdit}
+                                      style={{
+                                        borderRadius: '6px',
+                                        fontWeight: '500'
+                                      }}
+                                    >
+                                      <i className="fas fa-times me-1"></i>Cancel
                                     </Button>
+                                  </div>
+                                  <div className="small text-light mt-1" style={{ opacity: 0.8 }}>
+                                    <i className="fas fa-info-circle me-1"></i>
+                                    Press Enter to save, Escape to cancel
                                   </div>
                                 </div>
                               ) : (
-                                <div className="mb-1">{msg.message}</div>
+                                <div className="mb-1">
+                                  {msg.message_type === 'voice' ? (
+                                    <div className="voice-message-bubble">
+                                      <div className="d-flex align-items-center gap-2 mb-2">
+                                        <i className="fas fa-microphone text-primary"></i>
+                                        <span className="fw-bold">Voice Message</span>
+                                        {msg.duration && (
+                                          <span className="text-muted">({formatDuration(msg.duration)})</span>
+                                        )}
+                                      </div>
+                                      {msg.audio_file ? (
+                                        <audio 
+                                          controls 
+                                          src={getAudioUrl(msg.audio_file)}
+                                          className="w-100"
+                                          style={{ 
+                                            height: '35px', 
+                                            backgroundColor: 'rgba(255,255,255,0.1)',
+                                            borderRadius: '8px'
+                                          }}
+                                          preload="metadata"
+                                          onError={() => console.error('Audio playback error for:', getAudioUrl(msg.audio_file))}
+                                        />
+                                      ) : (
+                                        <div className="text-muted small">
+                                          <i className="fas fa-exclamation-triangle me-1"></i>
+                                          Audio file not available
+                                        </div>
+                                      )}
+                                    </div>
+                                  ) : msg.message_type === 'file' ? (
+                                    <div className="file-message-bubble">
+                                      <div className="d-flex align-items-center gap-2 mb-2">
+                                        <i className={`fas ${
+                                          msg.file_type === 'media' 
+                                            ? (msg.original_filename && (msg.original_filename.match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i) ? 'fa-image' : 'fa-video'))
+                                            : 'fa-file'
+                                        } text-info`}></i>
+                                        <span className="fw-bold">
+                                          {msg.file_type === 'media' 
+                                            ? (msg.original_filename && msg.original_filename.match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i) ? 'Photo' : 'Video')
+                                            : 'Document'
+                                          }
+                                        </span>
+                                        {msg.file_size && (
+                                          <span className="text-muted">({formatFileSize(msg.file_size)})</span>
+                                        )}
+                                      </div>
+                                      {msg.file_attachment ? (
+                                        <div className="file-attachment">
+                                          {msg.file_type === 'media' && msg.original_filename && msg.original_filename.match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i) ? (
+                                            <img 
+                                              src={`http://127.0.0.1:8000${msg.file_attachment}`}
+                                              alt={msg.original_filename || 'Uploaded image'}
+                                              className="img-fluid rounded"
+                                              style={{ maxHeight: '200px', maxWidth: '100%' }}
+                                            />
+                                          ) : msg.file_type === 'media' ? (
+                                            <video 
+                                              controls 
+                                              className="w-100 rounded"
+                                              style={{ maxHeight: '200px' }}
+                                            >
+                                              <source src={`http://127.0.0.1:8000${msg.file_attachment}`} />
+                                              Your browser does not support the video tag.
+                                            </video>
+                                          ) : (
+                                            <a 
+                                              href={`http://127.0.0.1:8000${msg.file_attachment}`}
+                                              download={msg.original_filename}
+                                              className="btn btn-outline-light btn-sm"
+                                            >
+                                              <i className="fas fa-download me-2"></i>
+                                              {msg.original_filename || 'Download File'}
+                                            </a>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <div className="text-muted small">
+                                          <i className="fas fa-exclamation-triangle me-1"></i>
+                                          File not available
+                                        </div>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    msg.message
+                                  )}
+                                </div>
                               )}
 
                               <div className="small" style={{ opacity: 0.7, fontSize: '0.75em' }}>
@@ -917,7 +1660,7 @@ const ChatRoomInterface = ({ room, onBack }) => {
                                           margin: '4px 8px'
                                         }}></div>
 
-                                        {isOwnMessage(msg.user) ? (
+                                        {isOwnMessage(msg.user) && msg.type !== 'system' && msg.user.id !== 'system' ? (
                                           <>
                                             <button
                                               onClick={() => handleEditMessage(msg)}
@@ -1067,6 +1810,22 @@ const ChatRoomInterface = ({ room, onBack }) => {
               {/* Message Input */}
               <Form onSubmit={sendMessage} className="mt-2">
                 <InputGroup className="shadow-sm">
+                  {/* Attachment Button */}
+                  <Button 
+                    variant="outline-primary"
+                    onClick={handleAttachment}
+                    disabled={!connected}
+                    style={{ 
+                      borderRadius: '25px 0 0 25px',
+                      border: '2px solid #007bff',
+                      borderRight: 'none',
+                      minWidth: '50px'
+                    }}
+                    title="Attach files"
+                  >
+                    <i className="fas fa-paperclip"></i>
+                  </Button>
+                  
                   <Form.Control
                     type="text"
                     placeholder={
@@ -1081,30 +1840,249 @@ const ChatRoomInterface = ({ room, onBack }) => {
                       if (e.key === 'Escape') setReplyToMessage(null);
                     }}
                     style={{ 
-                      borderRadius: '25px 0 0 25px',
                       border: '2px solid #007bff',
+                      borderLeft: 'none',
                       borderRight: 'none'
                     }}
                   />
-                  <Button 
-                    type="submit" 
-                    variant="primary"
-                    disabled={!connected || loading || !newMessage.trim()}
-                    style={{ 
-                      borderRadius: '0 25px 25px 0',
-                      border: '2px solid #007bff',
-                      borderLeft: 'none',
-                      minWidth: '80px'
-                    }}
-                  >
-                    {loading ? '⏳' : '➤'}
-                  </Button>
+                  
+                  {/* Microphone/Send Button Toggle */}
+                  {newMessage.trim() ? (
+                    <Button 
+                      type="submit" 
+                      variant="primary"
+                      disabled={!connected || loading}
+                      style={{ 
+                        borderRadius: '0 25px 25px 0',
+                        border: '2px solid #007bff',
+                        borderLeft: 'none',
+                        minWidth: '50px'
+                      }}
+                      title="Send message"
+                    >
+                      {loading ? '⏳' : <i className="fas fa-paper-plane"></i>}
+                    </Button>
+                  ) : (
+                    <Button 
+                      variant={isRecording ? "danger" : "outline-primary"}
+                      onMouseDown={startVoiceRecording}
+                      onMouseUp={stopVoiceRecording}
+                      onMouseLeave={stopVoiceRecording}
+                      onTouchStart={startVoiceRecording}
+                      onTouchEnd={stopVoiceRecording}
+                      disabled={!connected}
+                      style={{ 
+                        borderRadius: '0 25px 25px 0',
+                        border: '2px solid #007bff',
+                        borderLeft: 'none',
+                        minWidth: '50px',
+                        backgroundColor: isRecording ? '#dc3545' : undefined,
+                        transform: isRecording ? 'scale(1.1)' : 'scale(1)',
+                        transition: 'all 0.2s ease'
+                      }}
+                      title={isRecording ? "Recording... Release to stop" : `Hold to record voice message (max ${MAX_RECORDING_DURATION / 60} minutes)`}
+                    >
+                      <i className={`fas ${isRecording ? 'fa-stop' : 'fa-microphone'}`}></i>
+                    </Button>
+                  )}
                 </InputGroup>
                 <small className="text-muted mt-1 d-block">
-                  Press Enter to send • {participants.length} participant{participants.length !== 1 ? 's' : ''} online
-                  {replyToMessage && <span> • Press Esc to cancel reply</span>}
+                  {isRecording ? (
+                    <span className={recordingDuration >= MAX_RECORDING_DURATION - 30 ? "text-warning" : "text-danger"}>
+                      <i className={`fas fa-circle me-1 ${recordingDuration >= MAX_RECORDING_DURATION - 30 ? "text-warning" : "text-danger"}`} style={{ fontSize: '8px' }}></i>
+                      Recording voice message... {formatDuration(recordingDuration)} / {formatDuration(MAX_RECORDING_DURATION)} • Release to stop
+                      {recordingDuration >= MAX_RECORDING_DURATION - 30 && (
+                        <span className="text-warning ms-2">
+                          <i className="fas fa-exclamation-triangle me-1"></i>
+                          Approaching maximum duration
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <>
+                      Press Enter to send • {participants.length} participant{participants.length !== 1 ? 's' : ''} online
+                      {replyToMessage && <span> • Press Esc to cancel reply</span>}
+                    </>
+                  )}
                 </small>
               </Form>
+
+              {/* Hidden File Input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                style={{ display: 'none' }}
+                onChange={handleFileSelect}
+              />
+
+              {/* Attachment Dropdown */}
+              {showAttachments && (
+                <div className="mt-2">
+                  <Card className="shadow-sm">
+                    <Card.Body className="p-3">
+                      <div className="d-flex gap-3">
+                        <Button
+                          variant="outline-primary"
+                          className="flex-fill d-flex align-items-center justify-content-center gap-2 py-3"
+                          onClick={handleMediaFiles}
+                        >
+                          <i className="fas fa-images fs-3"></i>
+                          <div className="text-start">
+                            <div className="fw-bold">Photos & Videos</div>
+                            <small className="text-muted">Share images and videos</small>
+                          </div>
+                        </Button>
+                        <Button
+                          variant="outline-secondary"
+                          className="flex-fill d-flex align-items-center justify-content-center gap-2 py-3"
+                          onClick={handleDocumentFiles}
+                        >
+                          <i className="fas fa-file-alt fs-3"></i>
+                          <div className="text-start">
+                            <div className="fw-bold">Documents</div>
+                            <small className="text-muted">Share files and documents</small>
+                          </div>
+                        </Button>
+                      </div>
+                    </Card.Body>
+                  </Card>
+                </div>
+              )}
+
+              {/* Selected Files Preview */}
+              {selectedFiles.length > 0 && (
+                <div className="mt-2">
+                  <Card className="shadow-sm">
+                    <Card.Header className="d-flex justify-content-between align-items-center py-2">
+                      <span className="fw-bold text-primary">
+                        <i className="fas fa-paperclip me-2"></i>
+                        Selected Files ({selectedFiles.length})
+                      </span>
+                      <Button
+                        variant="outline-danger"
+                        size="sm"
+                        onClick={() => setSelectedFiles([])}
+                      >
+                        Clear All
+                      </Button>
+                    </Card.Header>
+                    <Card.Body className="p-2">
+                      <div className="d-flex flex-column gap-2">
+                        {selectedFiles.map((fileItem, index) => (
+                          <div key={index} className="d-flex align-items-center justify-content-between p-2 bg-light rounded">
+                            <div className="d-flex align-items-center gap-2">
+                              <i className={`fas ${fileItem.type === 'media' ? 'fa-image' : 'fa-file'} text-primary`}></i>
+                              <div>
+                                <div className="small fw-bold">{fileItem.file.name}</div>
+                                <small className="text-muted">{formatFileSize(fileItem.file.size)}</small>
+                              </div>
+                            </div>
+                            <Button
+                              variant="outline-danger"
+                              size="sm"
+                              onClick={() => removeFile(index)}
+                            >
+                              <i className="fas fa-times"></i>
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="d-flex gap-2 mt-3">
+                        <Button
+                          variant="success"
+                          onClick={handleUploadFiles}
+                          disabled={uploading || selectedFiles.length === 0}
+                          className="flex-grow-1"
+                        >
+                          {uploading ? (
+                            <>
+                              <i className="fas fa-spinner fa-spin me-2"></i>
+                              Uploading...
+                            </>
+                          ) : (
+                            <>
+                              <i className="fas fa-upload me-2"></i>
+                              Send Files
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          variant="outline-secondary"
+                          onClick={() => setSelectedFiles([])}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </Card.Body>
+                  </Card>
+                </div>
+              )}
+
+              {/* Voice Recording Preview */}
+              {showVoicePreview && recordedAudio && (
+                <div className="mt-3 p-3 border rounded bg-light">
+                  <div className="d-flex align-items-center justify-content-between mb-2">
+                    <h6 className="mb-0 text-primary">
+                      <i className="fas fa-microphone me-2"></i>
+                      Voice Message ({formatDuration(recordingDuration)})
+                    </h6>
+                    <Button
+                      variant="outline-secondary"
+                      size="sm"
+                      onClick={deleteVoiceRecording}
+                      title="Cancel recording"
+                    >
+                      <i className="fas fa-times"></i>
+                    </Button>
+                  </div>
+                  
+                  {/* Duration Progress Bar */}
+                  <div className="mb-3">
+                    <div className="d-flex justify-content-between small text-muted mb-1">
+                      <span>Duration: {formatDuration(recordingDuration)}</span>
+                      <span>Max: {formatDuration(MAX_RECORDING_DURATION)}</span>
+                    </div>
+                    <div className="progress" style={{ height: '4px' }}>
+                      <div 
+                        className={`progress-bar ${recordingDuration >= MAX_RECORDING_DURATION - 30 ? 'bg-warning' : 'bg-primary'}`}
+                        style={{ 
+                          width: `${(recordingDuration / MAX_RECORDING_DURATION) * 100}%`,
+                          transition: 'width 0.3s ease'
+                        }}
+                      ></div>
+                    </div>
+                  </div>
+                  
+                  <audio 
+                    ref={audioPreviewRef}
+                    controls 
+                    src={recordedAudio.url}
+                    className="w-100 mb-3"
+                    style={{ height: '40px' }}
+                  />
+                  
+                  <div className="d-flex gap-2">
+                    <Button
+                      variant="danger"
+                      onClick={deleteVoiceRecording}
+                      className="flex-grow-1"
+                    >
+                      <i className="fas fa-trash me-2"></i>
+                      Delete
+                    </Button>
+                    <Button
+                      variant="success"
+                      onClick={confirmVoiceMessage}
+                      className="flex-grow-1"
+                    >
+                      <i className="fas fa-paper-plane me-2"></i>
+                      Send Voice Message
+                    </Button>
+                  </div>
+                </div>
+              )}
+
             </Card.Body>
           </Card>
         </Col>
@@ -1338,7 +2316,110 @@ const ChatRoomInterface = ({ room, onBack }) => {
                           {msg.user.displayName}
                         </div>
                       )}
-                      <div>{msg.message}</div>
+                      <div>
+                        {msg.message_type === 'voice' ? (
+                          <div className="voice-message-bubble">
+                            <div className="d-flex align-items-center gap-2 mb-2">
+                              <i className="fas fa-microphone" style={{ color: msg.isOwn ? 'rgba(255,255,255,0.8)' : '#007bff' }}></i>
+                              <span style={{ fontWeight: '600' }}>Voice Message</span>
+                              {msg.duration && (
+                                <span style={{ opacity: 0.8 }}>({formatDuration(msg.duration)})</span>
+                              )}
+                            </div>
+                            {msg.audio_file ? (
+                              <audio 
+                                controls 
+                                src={getAudioUrl(msg.audio_file)}
+                                style={{ 
+                                  width: '100%',
+                                  height: '35px',
+                                  backgroundColor: msg.isOwn ? 'rgba(255,255,255,0.1)' : 'rgba(0,123,255,0.1)',
+                                  borderRadius: '8px'
+                                }}
+                                preload="metadata"
+                                onError={() => console.error('Private audio playback error for:', getAudioUrl(msg.audio_file))}
+                              />
+                            ) : (
+                              <div style={{ opacity: 0.7, fontSize: '12px' }}>
+                                <i className="fas fa-exclamation-triangle me-1"></i>
+                                Audio file not available
+                              </div>
+                            )}
+                          </div>
+                        ) : msg.message_type === 'file' ? (
+                          <div className="file-message-bubble">
+                            <div className="d-flex align-items-center gap-2 mb-2">
+                              <i className={`fas ${
+                                msg.file_type === 'media' 
+                                  ? (msg.original_filename && (msg.original_filename.match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i) ? 'fa-image' : 'fa-video'))
+                                  : 'fa-file'
+                              }`} 
+                                 style={{ color: msg.isOwn ? 'rgba(255,255,255,0.8)' : '#007bff' }}></i>
+                              <span style={{ fontWeight: '600' }}>
+                                {msg.file_type === 'media' 
+                                  ? (msg.original_filename && msg.original_filename.match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i) ? 'Photo' : 'Video')
+                                  : 'Document'
+                                }
+                              </span>
+                              {msg.file_size && (
+                                <span style={{ opacity: 0.8 }}>({formatFileSize(msg.file_size)})</span>
+                              )}
+                            </div>
+                            {msg.file_attachment ? (
+                              <div className="file-attachment">
+                                {msg.file_type === 'media' && msg.original_filename && msg.original_filename.match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i) ? (
+                                  <img 
+                                    src={`http://127.0.0.1:8000${msg.file_attachment}`}
+                                    alt={msg.original_filename || 'Uploaded image'}
+                                    style={{ 
+                                      maxHeight: '200px', 
+                                      maxWidth: '100%', 
+                                      borderRadius: '8px',
+                                      display: 'block'
+                                    }}
+                                  />
+                                ) : msg.file_type === 'media' ? (
+                                  <video 
+                                    controls 
+                                    style={{ 
+                                      width: '100%', 
+                                      maxHeight: '200px',
+                                      borderRadius: '8px'
+                                    }}
+                                  >
+                                    <source src={`http://127.0.0.1:8000${msg.file_attachment}`} />
+                                    Your browser does not support the video tag.
+                                  </video>
+                                ) : (
+                                  <a 
+                                    href={`http://127.0.0.1:8000${msg.file_attachment}`}
+                                    download={msg.original_filename}
+                                    style={{
+                                      display: 'inline-block',
+                                      padding: '8px 12px',
+                                      backgroundColor: msg.isOwn ? 'rgba(255,255,255,0.2)' : 'rgba(0,123,255,0.1)',
+                                      borderRadius: '6px',
+                                      textDecoration: 'none',
+                                      color: 'inherit',
+                                      fontSize: '14px'
+                                    }}
+                                  >
+                                    <i className="fas fa-download me-2"></i>
+                                    {msg.original_filename || 'Download File'}
+                                  </a>
+                                )}
+                              </div>
+                            ) : (
+                              <div style={{ opacity: 0.7, fontSize: '12px' }}>
+                                <i className="fas fa-exclamation-triangle me-1"></i>
+                                File not available
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          msg.message
+                        )}
+                      </div>
                       <div style={{ 
                         fontSize: '10px', 
                         opacity: 0.7, 
@@ -1349,7 +2430,11 @@ const ChatRoomInterface = ({ room, onBack }) => {
                           hour: '2-digit', 
                           minute: '2-digit' 
                         })}
-                        {msg.isOwn && <span style={{ marginLeft: '4px' }}>✓</span>}
+                        {msg.isOwn && (
+                          <span style={{ marginLeft: '4px' }}>
+                            {msg.is_sending ? '⏳' : msg.is_read ? '✓✓' : '✓'}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1365,37 +2450,269 @@ const ChatRoomInterface = ({ room, onBack }) => {
             }}>
               <Form onSubmit={sendPrivateMessage}>
                 <InputGroup>
-                  <Form.Control
-                    type="text"
-                    className="private-chat-input"
-                    placeholder={`Message ${privateChatUser.displayName} privately...`}
-                    value={newPrivateMessage}
-                    onChange={(e) => setNewPrivateMessage(e.target.value)}
+                  {/* Private Attachment Button */}
+                  <Button 
+                    variant="outline-primary"
+                    onClick={handlePrivateAttachment}
                     style={{ 
                       borderRadius: '25px 0 0 25px',
                       border: '2px solid #007bff',
+                      borderRight: 'none',
+                      minWidth: '50px'
+                    }}
+                    title="Attach files"
+                  >
+                    <i className="fas fa-paperclip"></i>
+                  </Button>
+                  
+                  <Form.Control
+                    type="text"
+                    className="private-chat-input"
+                    placeholder={`Message ${privateChatUser?.displayName} privately...`}
+                    value={newPrivateMessage}
+                    onChange={(e) => setNewPrivateMessage(e.target.value)}
+                    style={{ 
+                      border: '2px solid #007bff',
+                      borderLeft: 'none',
                       borderRight: 'none'
                     }}
                   />
-                  <Button 
-                    type="submit" 
-                    variant="primary"
-                    disabled={!newPrivateMessage.trim()}
-                    style={{ 
-                      borderRadius: '0 25px 25px 0',
-                      border: '2px solid #007bff',
-                      borderLeft: 'none',
-                      minWidth: '60px'
-                    }}
-                  >
-                    <i className="fas fa-paper-plane"></i>
-                  </Button>
+                  
+                  {/* Private Microphone/Send Button Toggle */}
+                  {newPrivateMessage.trim() ? (
+                    <Button 
+                      type="submit" 
+                      variant="primary"
+                      style={{ 
+                        borderRadius: '0 25px 25px 0',
+                        border: '2px solid #007bff',
+                        borderLeft: 'none',
+                        minWidth: '50px'
+                      }}
+                      title="Send private message"
+                    >
+                      <i className="fas fa-paper-plane"></i>
+                    </Button>
+                  ) : (
+                    <Button 
+                      variant={isPrivateRecording ? "danger" : "outline-primary"}
+                      onMouseDown={startPrivateVoiceRecording}
+                      onMouseUp={stopPrivateVoiceRecording}
+                      onMouseLeave={stopPrivateVoiceRecording}
+                      onTouchStart={startPrivateVoiceRecording}
+                      onTouchEnd={stopPrivateVoiceRecording}
+                      style={{ 
+                        borderRadius: '0 25px 25px 0',
+                        border: '2px solid #007bff',
+                        borderLeft: 'none',
+                        minWidth: '50px',
+                        backgroundColor: isPrivateRecording ? '#dc3545' : undefined,
+                        transform: isPrivateRecording ? 'scale(1.1)' : 'scale(1)',
+                        transition: 'all 0.2s ease'
+                      }}
+                      title={isPrivateRecording ? "Recording... Release to stop" : `Hold to record voice message (max ${MAX_RECORDING_DURATION / 60} minutes)`}
+                    >
+                      <i className={`fas ${isPrivateRecording ? 'fa-stop' : 'fa-microphone'}`}></i>
+                    </Button>
+                  )}
                 </InputGroup>
                 <small style={{ color: '#6c757d', marginTop: '8px', display: 'block' }}>
-                  <i className="fas fa-lock me-1"></i>
-                  Messages are encrypted and only visible to you and {privateChatUser.displayName}
+                  {isPrivateRecording ? (
+                    <span style={{ color: privateRecordingDuration >= MAX_RECORDING_DURATION - 30 ? '#ffc107' : '#dc3545' }}>
+                      <i className="fas fa-circle me-1" style={{ fontSize: '8px', color: privateRecordingDuration >= MAX_RECORDING_DURATION - 30 ? '#ffc107' : '#dc3545' }}></i>
+                      Recording private voice message... {formatDuration(privateRecordingDuration)} / {formatDuration(MAX_RECORDING_DURATION)} • Release to stop
+                      {privateRecordingDuration >= MAX_RECORDING_DURATION - 30 && (
+                        <span style={{ color: '#ffc107', marginLeft: '8px' }}>
+                          <i className="fas fa-exclamation-triangle me-1"></i>
+                          Approaching maximum duration
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <>
+                      <i className="fas fa-lock me-1"></i>
+                      Messages are encrypted and only visible to you and {privateChatUser.displayName}
+                    </>
+                  )}
                 </small>
               </Form>
+
+              {/* Hidden Private File Input */}
+              <input
+                ref={privateFileInputRef}
+                type="file"
+                multiple
+                style={{ display: 'none' }}
+                onChange={handlePrivateFileSelect}
+              />
+
+              {/* Private Attachment Dropdown */}
+              {showPrivateAttachments && (
+                <div className="mt-2">
+                  <Card className="shadow-sm">
+                    <Card.Body className="p-3">
+                      <div className="d-flex gap-3">
+                        <Button
+                          variant="outline-primary"
+                          className="flex-fill d-flex align-items-center justify-content-center gap-2 py-3"
+                          onClick={handlePrivateMediaFiles}
+                        >
+                          <i className="fas fa-images fs-3"></i>
+                          <div className="text-start">
+                            <div className="fw-bold">Photos & Videos</div>
+                            <small className="text-muted">Share images and videos</small>
+                          </div>
+                        </Button>
+                        <Button
+                          variant="outline-secondary"
+                          className="flex-fill d-flex align-items-center justify-content-center gap-2 py-3"
+                          onClick={handlePrivateDocumentFiles}
+                        >
+                          <i className="fas fa-file-alt fs-3"></i>
+                          <div className="text-start">
+                            <div className="fw-bold">Documents</div>
+                            <small className="text-muted">Share files and documents</small>
+                          </div>
+                        </Button>
+                      </div>
+                    </Card.Body>
+                  </Card>
+                </div>
+              )}
+
+              {/* Selected Private Files Preview */}
+              {selectedPrivateFiles.length > 0 && (
+                <div className="mt-2">
+                  <Card className="shadow-sm">
+                    <Card.Header className="d-flex justify-content-between align-items-center py-2">
+                      <span className="fw-bold text-primary">
+                        <i className="fas fa-paperclip me-2"></i>
+                        Selected Files ({selectedPrivateFiles.length})
+                      </span>
+                      <Button
+                        variant="outline-danger"
+                        size="sm"
+                        onClick={() => setSelectedPrivateFiles([])}
+                      >
+                        Clear All
+                      </Button>
+                    </Card.Header>
+                    <Card.Body className="p-2">
+                      <div className="d-flex flex-column gap-2">
+                        {selectedPrivateFiles.map((fileItem, index) => (
+                          <div key={index} className="d-flex align-items-center justify-content-between p-2 bg-light rounded">
+                            <div className="d-flex align-items-center gap-2">
+                              <i className={`fas ${fileItem.type === 'media' ? 'fa-image' : 'fa-file'} text-primary`}></i>
+                              <div>
+                                <div className="small fw-bold">{fileItem.file.name}</div>
+                                <small className="text-muted">{formatFileSize(fileItem.file.size)}</small>
+                              </div>
+                            </div>
+                            <Button
+                              variant="outline-danger"
+                              size="sm"
+                              onClick={() => removePrivateFile(index)}
+                            >
+                              <i className="fas fa-times"></i>
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="d-flex gap-2 mt-3">
+                        <Button
+                          variant="success"
+                          onClick={handlePrivateUploadFiles}
+                          disabled={privateUploading || selectedPrivateFiles.length === 0}
+                          className="flex-grow-1"
+                        >
+                          {privateUploading ? (
+                            <>
+                              <i className="fas fa-spinner fa-spin me-2"></i>
+                              Uploading...
+                            </>
+                          ) : (
+                            <>
+                              <i className="fas fa-upload me-2"></i>
+                              Send Files
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          variant="outline-secondary"
+                          onClick={() => setSelectedPrivateFiles([])}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </Card.Body>
+                  </Card>
+                </div>
+              )}
+
+              {/* Private Voice Recording Preview */}
+              {showPrivateVoicePreview && recordedPrivateAudio && (
+                <div className="mt-3 p-3 border rounded bg-light">
+                  <div className="d-flex align-items-center justify-content-between mb-2">
+                    <h6 className="mb-0 text-primary">
+                      <i className="fas fa-microphone me-2"></i>
+                      Private Voice Message ({formatDuration(privateRecordingDuration)})
+                    </h6>
+                    <Button
+                      variant="outline-secondary"
+                      size="sm"
+                      onClick={deletePrivateVoiceRecording}
+                      title="Cancel recording"
+                    >
+                      <i className="fas fa-times"></i>
+                    </Button>
+                  </div>
+                  
+                  {/* Duration Progress Bar */}
+                  <div className="mb-3">
+                    <div className="d-flex justify-content-between small text-muted mb-1">
+                      <span>Duration: {formatDuration(privateRecordingDuration)}</span>
+                      <span>Max: {formatDuration(MAX_RECORDING_DURATION)}</span>
+                    </div>
+                    <div className="progress" style={{ height: '4px' }}>
+                      <div 
+                        className={`progress-bar ${privateRecordingDuration >= MAX_RECORDING_DURATION - 30 ? 'bg-warning' : 'bg-primary'}`}
+                        style={{ 
+                          width: `${(privateRecordingDuration / MAX_RECORDING_DURATION) * 100}%`,
+                          transition: 'width 0.3s ease'
+                        }}
+                      ></div>
+                    </div>
+                  </div>
+                  
+                  <audio 
+                    ref={privateAudioPreviewRef}
+                    controls 
+                    src={recordedPrivateAudio.url}
+                    className="w-100 mb-3"
+                    style={{ height: '40px' }}
+                  />
+                  
+                  <div className="d-flex gap-2">
+                    <Button
+                      variant="danger"
+                      onClick={deletePrivateVoiceRecording}
+                      className="flex-grow-1"
+                    >
+                      <i className="fas fa-trash me-2"></i>
+                      Delete
+                    </Button>
+                    <Button
+                      variant="success"
+                      onClick={confirmPrivateVoiceMessage}
+                      className="flex-grow-1"
+                    >
+                      <i className="fas fa-paper-plane me-2"></i>
+                      Send Voice Message
+                    </Button>
+                  </div>
+                </div>
+              )}
+
             </div>
           </div>
         </div>

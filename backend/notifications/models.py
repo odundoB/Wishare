@@ -406,12 +406,24 @@ class ChatMessage(models.Model):
         ('system', 'System'),
         ('join', 'User Join'),
         ('leave', 'User Leave'),
+        ('voice', 'Voice Message'),
+        ('file', 'File Attachment'),
     ]
     
     room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name='messages')
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='chat_messages', null=True, blank=True)
-    message = models.TextField(help_text="Message content")
+    message = models.TextField(help_text="Message content", blank=True)
     message_type = models.CharField(max_length=20, choices=MESSAGE_TYPES, default='text')
+    
+    # Voice message fields
+    audio_file = models.FileField(upload_to='voice_messages/', null=True, blank=True, help_text="Audio file for voice messages")
+    duration = models.IntegerField(null=True, blank=True, help_text="Duration of voice message in seconds")
+    
+    # File attachment fields
+    file_attachment = models.FileField(upload_to='chat_files/', null=True, blank=True, help_text="File attachment")
+    file_type = models.CharField(max_length=20, choices=[('media', 'Media'), ('document', 'Document')], null=True, blank=True)
+    file_size = models.BigIntegerField(null=True, blank=True, help_text="File size in bytes")
+    original_filename = models.CharField(max_length=255, null=True, blank=True, help_text="Original filename")
     
     # Reply functionality
     reply_to = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='replies')
@@ -486,9 +498,27 @@ class PrivateMessage(models.Model):
     """
     Model for storing private messages within private chat rooms.
     """
+    MESSAGE_TYPES = [
+        ('text', 'Text'),
+        ('voice', 'Voice Message'),
+        ('file', 'File Attachment'),
+        ('system', 'System'),
+    ]
+    
     private_chat = models.ForeignKey(PrivateChatRoom, on_delete=models.CASCADE, related_name='private_messages')
     sender = models.ForeignKey(User, on_delete=models.CASCADE, related_name='sent_private_messages')
-    message = models.TextField(help_text="Private message content")
+    message = models.TextField(help_text="Private message content", blank=True)
+    message_type = models.CharField(max_length=20, choices=MESSAGE_TYPES, default='text')
+    
+    # Voice message fields
+    audio_file = models.FileField(upload_to='private_voice_messages/', null=True, blank=True, help_text="Audio file for voice messages")
+    duration = models.IntegerField(null=True, blank=True, help_text="Duration of voice message in seconds")
+    
+    # File attachment fields
+    file_attachment = models.FileField(upload_to='private_chat_files/', null=True, blank=True, help_text="File attachment")
+    file_type = models.CharField(max_length=20, choices=[('media', 'Media'), ('document', 'Document')], null=True, blank=True)
+    file_size = models.BigIntegerField(null=True, blank=True, help_text="File size in bytes")
+    original_filename = models.CharField(max_length=255, null=True, blank=True, help_text="Original filename")
     
     # Message status
     is_read = models.BooleanField(default=False)

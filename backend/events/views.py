@@ -49,14 +49,20 @@ class EventListCreateView(generics.ListCreateAPIView):
     def create(self, request, *args, **kwargs):
         """Override create to return full event details."""
         print(f"Event creation request data: {request.data}")
-        print(f"User: {request.user}, Role: {getattr(request.user, 'role', 'No role')}")
+        print(f"User: {request.user}, User ID: {request.user.id}, Role: {getattr(request.user, 'role', 'No role')}")
+        print(f"User authenticated: {request.user.is_authenticated}")
+        print(f"Request headers: {dict(request.headers)}")
         
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
-            event = serializer.save()
-            response_serializer = EventSerializer(event, context={'request': request})
-            print(f"Event created successfully: {response_serializer.data}")
-            return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+            try:
+                event = serializer.save()
+                response_serializer = EventSerializer(event, context={'request': request})
+                print(f"Event created successfully: {response_serializer.data}")
+                return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+            except Exception as e:
+                print(f"Error saving event: {e}")
+                return Response({'detail': f'Error saving event: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         print(f"Validation errors: {serializer.errors}")
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

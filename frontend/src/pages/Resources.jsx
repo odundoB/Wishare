@@ -79,7 +79,7 @@ const Resources = () => {
         uploadFormData.append('url', formData.url)
       }
 
-      console.log('Uploading with FormData:', Object.fromEntries(uploadFormData.entries()))
+      // Upload resource with form data
       await uploadResource(uploadFormData)
       setShowUploadModal(false)
       fetchResources()
@@ -94,8 +94,6 @@ const Resources = () => {
 
   const handleDelete = async () => {
     try {
-      console.log('Attempting to delete resource:', selectedResource)
-      console.log('Current user:', user)
       await deleteResource(selectedResource.id)
       setShowDeleteModal(false)
       setSelectedResource(null)
@@ -146,13 +144,7 @@ const Resources = () => {
       (user.id === resource.uploaded_by_id)
     )
     
-    console.log('Delete permission check:', {
-      user: user,
-      userRole: user?.role,
-      userIsStaff: user?.is_staff,
-      resourceUploadedById: resource.uploaded_by_id,
-      canDelete: canDelete
-    })
+    // Check delete permissions
     
     return canDelete
   }
@@ -250,7 +242,7 @@ const Resources = () => {
                   onDownload={handleDownload}
                   onEdit={(resource) => {
                     // TODO: Implement edit functionality
-                    console.log('Edit resource:', resource)
+                    // Edit resource
                   }}
                   onDelete={(resource) => {
                     setSelectedResource(resource)

@@ -14,6 +14,7 @@ import Resources from './pages/Resources'
 import Events from './pages/Events'
 import Notifications from './pages/Notifications'
 import Chat from './pages/Chat'
+import ChatRoom from './pages/ChatRoom'
 import WorkingChatPage from './components/WorkingChatPage'
 import { AuthProvider } from './contexts/AuthContext'
 import './App.css'
@@ -38,6 +39,7 @@ function App() {
               <Route path="/events" element={<Events />} />
               <Route path="/notifications" element={<Notifications />} />
               <Route path="/chat" element={<Chat />} />
+              <Route path="/chat-room/:roomId" element={<ChatRoom />} />
               <Route path="/working-chat" element={<WorkingChatPage />} />
             </Routes>
           </Container>

@@ -31,6 +31,38 @@ const EventCreateModal = ({
   const handleSubmit = (e) => {
     e.preventDefault()
     
+    // Validation checks before submission
+    if (!formData.title.trim()) {
+      alert('Please enter a valid event title');
+      return;
+    }
+    
+    if (!formData.description.trim()) {
+      alert('Please enter a valid event description');
+      return;
+    }
+    
+    if (!formData.location.trim()) {
+      alert('Please enter a valid event location');
+      return;
+    }
+    
+    if (!formData.start_time) {
+      alert('Please select a start time');
+      return;
+    }
+    
+    if (!formData.end_time) {
+      alert('Please select an end time');
+      return;
+    }
+    
+    // Check that end time is after start time
+    if (new Date(formData.end_time) <= new Date(formData.start_time)) {
+      alert('End time must be after start time');
+      return;
+    }
+    
     // Convert datetime-local values to ISO format for backend
     const submitData = {
       ...formData,
@@ -81,13 +113,18 @@ const EventCreateModal = ({
     if (!dateTimeLocal) return ''
     try {
       // Create date from datetime-local input (which is in local timezone)
+      // datetime-local format is YYYY-MM-DDTHH:mm
       const date = new Date(dateTimeLocal)
       if (isNaN(date.getTime())) {
         console.error('Invalid date:', dateTimeLocal)
         return ''
       }
-      // Convert to UTC ISO string
-      return date.toISOString()
+      
+      // For backend compatibility, we need to ensure the time is in the correct format
+      // The backend expects ISO 8601 format in UTC
+      const isoString = date.toISOString()
+      console.log(`Converting ${dateTimeLocal} -> ${isoString}`)
+      return isoString
     } catch (error) {
       console.error('Error converting date:', error, dateTimeLocal)
       return ''
