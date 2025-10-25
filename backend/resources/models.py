@@ -86,10 +86,19 @@ class Resource(models.Model):
         help_text="Subject category of the resource"
     )
     
-    tags = models.CharField(
-        max_length=500,
-        blank=True,
-        help_text="Comma-separated tags for better searchability"
+    FORM_LEVEL_CHOICES = [
+        ('form1', 'Form 1'),
+        ('form2', 'Form 2'),
+        ('form3', 'Form 3'),
+        ('form4', 'Form 4'),
+        ('other', 'Other/General'),
+    ]
+    
+    form_level = models.CharField(
+        max_length=10,
+        choices=FORM_LEVEL_CHOICES,
+        default='form1',
+        help_text="Form level for which this resource is intended"
     )
     
     is_public = models.BooleanField(
@@ -134,6 +143,8 @@ class Resource(models.Model):
     
     def save(self, *args, **kwargs):
         """Override save to calculate file size and validate resource type."""
+        from django.conf import settings
+        
         # Validate that either file or url is provided
         if not self.file and not self.url:
             raise ValueError("Either file or URL must be provided")
@@ -147,6 +158,12 @@ class Resource(models.Model):
             # Calculate file size
             if hasattr(self.file, 'size'):
                 self.file_size = self.file.size
+                
+                # Validate file size
+                max_size = getattr(settings, 'MAX_UPLOAD_SIZE', 50 * 1024 * 1024)  # 50MB default
+                if self.file_size > max_size:
+                    raise ValueError(f"File size ({self.file_size // (1024*1024)}MB) exceeds maximum allowed size ({max_size // (1024*1024)}MB)")
+                    
         elif self.url:
             self.resource_type = 'url'
             self.file_size = None
@@ -175,12 +192,7 @@ class Resource(models.Model):
         self.download_count += 1
         self.save(update_fields=['download_count'])
     
-    def get_tags_list(self):
-        """Return tags as a list."""
-        if self.tags:
-            return [tag.strip() for tag in self.tags.split(',') if tag.strip()]
-        return []
-    
+
     def is_accessible_by(self, user):
         """Check if user can access this resource."""
         if self.is_public:

@@ -8,16 +8,12 @@ import api from './api'
 /**
  * Upload a new resource file
  * @param {FormData|Object} data - Resource data (FormData for file uploads)
- * @param {File} data.file - The file to upload
- * @param {string} data.title - Resource title
- * @param {string} data.description - Resource description
- * @param {string} data.subject - Subject/category
- * @param {string} data.resource_type - Type of resource (document, image, video, etc.)
- * @param {string} data.grade_level - Grade level (optional)
- * @param {boolean} data.is_public - Whether resource is public (optional)
+ * @param {Object} options - Upload options
+ * @param {Function} options.onProgress - Progress callback function
+ * @param {AbortSignal} options.signal - Abort signal for cancellation
  * @returns {Promise} Axios promise
  */
-export const uploadResource = (data) => {
+export const uploadResource = (data, options = {}) => {
   // If data is not FormData, convert it to FormData for file upload
   let formData
   if (data instanceof FormData) {
@@ -33,10 +29,24 @@ export const uploadResource = (data) => {
     })
   }
 
+  // Check file size before upload
+  const file = formData.get('file')
+  if (file && file.size > 50 * 1024 * 1024) { // 50MB limit
+    return Promise.reject(new Error('File size exceeds 50MB limit'))
+  }
+
   return api.post('/resources/', formData, {
     headers: {
       'Content-Type': 'multipart/form-data',
     },
+    timeout: 300000, // 5 minutes for large files
+    onUploadProgress: (progressEvent) => {
+      if (options.onProgress && progressEvent.total) {
+        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+        options.onProgress(percentCompleted)
+      }
+    },
+    signal: options.signal, // For upload cancellation
   })
 }
 

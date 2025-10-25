@@ -215,3 +215,277 @@
         transform: translateY(0);
     }
 }
+
+/* Inspiration and Artwork Cards */
+.inspiration-card {
+  border: none;
+  border-radius: 15px;
+  overflow: hidden;
+  transition: all 0.4s ease;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  position: relative;
+}
+
+.inspiration-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(45deg, rgba(255,255,255,0.1) 0%, transparent 50%);
+  transform: translateX(-100%);
+  transition: transform 0.6s ease;
+}
+
+.inspiration-card:hover::before {
+  transform: translateX(100%);
+}
+
+.inspiration-card:hover {
+  transform: translateY(-8px) scale(1.02);
+  box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
+}
+
+.art-quote {
+  font-style: italic;
+  font-size: 1.1rem;
+  margin-bottom: 15px;
+  opacity: 0.9;
+}
+
+.art-author {
+  font-weight: 600;
+  color: #ffd700;
+  text-align: right;
+}
+
+.inspiration-icon {
+  font-size: 3rem;
+  margin-bottom: 15px;
+  animation: float 3s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+/* Learning Journey Animation */
+.learning-journey {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  border-radius: 20px;
+  padding: 30px;
+  margin: 30px 0;
+  color: white;
+  position: relative;
+  overflow: hidden;
+}
+
+.learning-journey::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+  animation: rotate 20s linear infinite;
+}
+
+@keyframes rotate {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.journey-content {
+  position: relative;
+  z-index: 1;
+}
+
+.progress-steps {
+  display: flex;
+  justify-content: space-between;
+  margin: 20px 0;
+  flex-wrap: wrap;
+}
+
+.step {
+  text-align: center;
+  flex: 1;
+  min-width: 120px;
+  margin: 10px 5px;
+}
+
+.step-icon {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 10px;
+  font-size: 1.5rem;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+.step-text {
+  font-size: 0.9rem;
+  opacity: 0.9;
+}
+
+/* Educational Artwork Gallery */
+.artwork-gallery {
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  border-radius: 20px;
+  padding: 25px;
+  margin: 20px 0;
+  color: white;
+}
+
+.artwork-item {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 20px;
+  margin: 15px 0;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  transition: all 0.3s ease;
+}
+
+.artwork-item:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: translateY(-3px);
+}
+
+.artwork-emoji {
+  font-size: 2.5rem;
+  margin-bottom: 10px;
+  display: block;
+}
+
+.motivational-section {
+  background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+  border-radius: 15px;
+  padding: 25px;
+  text-align: center;
+  margin: 20px 0;
+  color: #333;
+}
+
+.motivational-text {
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.motivational-subtext {
+  opacity: 0.8;
+  font-style: italic;
+}
+
+/* Floating Particles Animation */
+.floating-particles {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.particle {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 50%;
+  animation: floatUp 6s infinite ease-in-out;
+}
+
+.particle:nth-child(1) {
+  left: 10%;
+  width: 4px;
+  height: 4px;
+  animation-delay: 0s;
+}
+
+.particle:nth-child(2) {
+  left: 30%;
+  width: 6px;
+  height: 6px;
+  animation-delay: 1s;
+}
+
+.particle:nth-child(3) {
+  left: 50%;
+  width: 3px;
+  height: 3px;
+  animation-delay: 2s;
+}
+
+.particle:nth-child(4) {
+  left: 70%;
+  width: 5px;
+  height: 5px;
+  animation-delay: 3s;
+}
+
+.particle:nth-child(5) {
+  left: 90%;
+  width: 4px;
+  height: 4px;
+  animation-delay: 4s;
+}
+
+@keyframes floatUp {
+  0% {
+    bottom: -10px;
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    bottom: 100%;
+    opacity: 0;
+  }
+}
+
+/* Hover effects for inspiration cards */
+.inspiration-card:hover .inspiration-icon {
+  animation-play-state: paused;
+  transform: scale(1.2) rotate(10deg);
+}
+
+.learning-journey:hover .step-icon {
+  animation-duration: 1s;
+}
+
+/* Gradient text effect */
+.gradient-text {
+  background: linear-gradient(45deg, #667eea, #764ba2, #667eea);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradientShift 3s ease infinite;
+}
+
+@keyframes gradientShift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}

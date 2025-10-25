@@ -209,6 +209,31 @@ REST_FRAMEWORK = {
     ],
 }
 
+# File Upload Settings
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB - files larger than this go to disk
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024   # 10MB - max size for in-memory uploads
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 1000             # Prevent field flooding attacks
+
+# Maximum file upload size (50MB)
+FILE_UPLOAD_PERMISSIONS = 0o644
+FILE_UPLOAD_DIRECTORY_PERMISSIONS = 0o755
+
+# Temporary file upload directory
+FILE_UPLOAD_TEMP_DIR = None  # Use system default
+
+# File upload handlers - optimize for performance
+FILE_UPLOAD_HANDLERS = [
+    'django.core.files.uploadhandler.MemoryFileUploadHandler',
+    'django.core.files.uploadhandler.TemporaryFileUploadHandler',
+    'resources.upload_handlers.OptimizedFileUploadHandler',
+]
+
+# Maximum upload size (50MB)
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024
+
+# Upload timeout (in seconds)
+UPLOAD_TIMEOUT = 300  # 5 minutes
+
 # CORS Settings
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # React development server

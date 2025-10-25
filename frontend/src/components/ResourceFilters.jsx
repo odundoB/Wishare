@@ -8,6 +8,8 @@ const ResourceFilters = ({
   setSelectedSubject,
   selectedType,
   setSelectedType,
+  selectedFormLevel,
+  setSelectedFormLevel,
   sortBy,
   setSortBy,
   sortOrder,
@@ -35,6 +37,15 @@ const ResourceFilters = ({
     { value: 'url', label: 'External Link' }
   ]
 
+  const formLevels = [
+    { value: '', label: 'All Form Levels' },
+    { value: 'form1', label: 'Form 1' },
+    { value: 'form2', label: 'Form 2' },
+    { value: 'form3', label: 'Form 3' },
+    { value: 'form4', label: 'Form 4' },
+    { value: 'other', label: 'Other/General' }
+  ]
+
   const sortOptions = [
     { value: 'created_at', label: 'Date Created' },
     { value: 'title', label: 'Title' },
@@ -49,6 +60,9 @@ const ResourceFilters = ({
         break
       case 'type':
         setSelectedType(value)
+        break
+      case 'form_level':
+        setSelectedFormLevel(value)
         break
       case 'sort':
         const [field, order] = value.split('_')
@@ -66,8 +80,9 @@ const ResourceFilters = ({
   }
 
   return (
-    <Card className="mb-4">
-      <Card.Body>
+    <div className="resource-filters">
+      <Card className="mb-4" style={{ position: 'relative', zIndex: 10 }}>
+        <Card.Body>
         <Row>
           <Col md={6}>
             <Form onSubmit={handleSearch}>
@@ -85,12 +100,12 @@ const ResourceFilters = ({
             </Form>
           </Col>
           <Col md={6}>
-            <div className="d-flex gap-2 flex-wrap">
-              <Dropdown>
+            <div className="d-flex gap-2 flex-wrap" style={{ position: 'relative', zIndex: 20 }}>
+              <Dropdown drop="down" align="start">
                 <Dropdown.Toggle variant="outline-secondary" size="sm">
                   🔽 Subject: {selectedSubject || 'All'}
                 </Dropdown.Toggle>
-                <Dropdown.Menu>
+                <Dropdown.Menu style={{ zIndex: 1050 }}>
                   {subjects.map(subject => (
                     <Dropdown.Item
                       key={subject.value}
@@ -103,11 +118,11 @@ const ResourceFilters = ({
                 </Dropdown.Menu>
               </Dropdown>
 
-              <Dropdown>
+              <Dropdown drop="down" align="start">
                 <Dropdown.Toggle variant="outline-secondary" size="sm">
                   📄 Type: {selectedType || 'All'}
                 </Dropdown.Toggle>
-                <Dropdown.Menu>
+                <Dropdown.Menu style={{ zIndex: 1050 }}>
                   {resourceTypes.map(type => (
                     <Dropdown.Item
                       key={type.value}
@@ -120,11 +135,28 @@ const ResourceFilters = ({
                 </Dropdown.Menu>
               </Dropdown>
 
-              <Dropdown>
+              <Dropdown drop="down" align="start">
+                <Dropdown.Toggle variant="outline-secondary" size="sm">
+                  📚 Form: {formLevels.find(level => level.value === selectedFormLevel)?.label || 'All'}
+                </Dropdown.Toggle>
+                <Dropdown.Menu style={{ zIndex: 1050 }}>
+                  {formLevels.map(level => (
+                    <Dropdown.Item
+                      key={level.value}
+                      onClick={() => handleFilterChange('form_level', level.value)}
+                      active={selectedFormLevel === level.value}
+                    >
+                      {level.label}
+                    </Dropdown.Item>
+                  ))}
+                </Dropdown.Menu>
+              </Dropdown>
+
+              <Dropdown drop="down" align="start">
                 <Dropdown.Toggle variant="outline-secondary" size="sm">
                   ↕️ Sort: {sortOptions.find(opt => opt.value === sortBy)?.label}
                 </Dropdown.Toggle>
-                <Dropdown.Menu>
+                <Dropdown.Menu style={{ zIndex: 1050 }}>
                   {sortOptions.map(option => (
                     <Dropdown.Item
                       key={`${option.value}_asc`}
@@ -150,6 +182,7 @@ const ResourceFilters = ({
         </Row>
       </Card.Body>
     </Card>
+    </div>
   )
 }
 

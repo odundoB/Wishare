@@ -3,10 +3,13 @@ import { tokenManager } from '../utils/tokenManager'
 
 // Create reusable axios instance with automatic backend connection
 const api = axios.create({
-  baseURL: 'http://127.0.0.1:8000/api',
+  baseURL: 'http://127.0.0.1:8001/api',
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 300000, // 5 minutes timeout for file uploads
+  maxContentLength: 100 * 1024 * 1024, // 100MB max file size
+  maxBodyLength: 100 * 1024 * 1024, // 100MB max body size
 })
 
 // Request interceptor that automatically attaches token if available

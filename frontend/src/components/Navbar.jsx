@@ -50,7 +50,7 @@ const Navbar = () => {
       <Container>
         <BSNavbar.Brand as={Link} to={isAuthenticated ? "/dashboard" : "/"} className={`fw-bold ${isLandingPage ? "text-primary" : "text-primary"}`}>
           <span className="me-2">🎓</span>
-          Wishare
+          WISHARE
         </BSNavbar.Brand>
         
         <BSNavbar.Toggle aria-controls="basic-navbar-nav" />

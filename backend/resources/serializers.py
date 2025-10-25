@@ -21,7 +21,7 @@ class ResourceSerializer(serializers.ModelSerializer):
     subject_display = serializers.CharField(source='get_subject_display', read_only=True)
     file_extension = serializers.CharField(source='get_file_extension', read_only=True)
     file_size_display = serializers.CharField(source='get_file_size_display', read_only=True)
-    tags_list = serializers.ListField(source='get_tags_list', read_only=True)
+    form_level_display = serializers.CharField(source='get_form_level_display', read_only=True)
     
     file_url = serializers.SerializerMethodField()
     is_accessible = serializers.SerializerMethodField()
@@ -32,7 +32,7 @@ class ResourceSerializer(serializers.ModelSerializer):
             'id', 'title', 'description', 'resource_type', 'file', 'url',
             'uploaded_by', 'uploaded_by_id', 'uploaded_by_username', 
             'uploaded_by_email', 'uploaded_by_role',
-            'subject', 'subject_display', 'tags', 'tags_list',
+            'subject', 'subject_display', 'form_level', 'form_level_display',
             'is_public', 'download_count', 'file_size', 'file_size_display',
             'file_extension', 'file_url', 'is_accessible',
             'created_at', 'updated_at'
@@ -40,7 +40,7 @@ class ResourceSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'id', 'uploaded_by', 'uploaded_by_id', 'uploaded_by_username',
             'uploaded_by_email', 'uploaded_by_role', 'download_count',
-            'file_size', 'file_extension', 'file_size_display', 'tags_list',
+            'file_size', 'file_extension', 'file_size_display', 'form_level_display',
             'is_accessible', 'created_at', 'updated_at'
         ]
     
@@ -79,12 +79,12 @@ class ResourceCreateSerializer(serializers.ModelSerializer):
     )
     
     url = serializers.URLField(required=False, allow_blank=True)
-    tags = serializers.CharField(required=False, allow_blank=True)
+    form_level = serializers.CharField(required=True)
     
     class Meta:
         model = Resource
         fields = [
-            'title', 'description', 'file', 'url', 'subject', 'tags', 'is_public'
+            'title', 'description', 'file', 'url', 'subject', 'form_level', 'is_public'
         ]
     
     def validate(self, attrs):
@@ -179,12 +179,12 @@ class ResourceUpdateSerializer(serializers.ModelSerializer):
     )
     
     url = serializers.URLField(required=False, allow_blank=True)
-    tags = serializers.CharField(required=False, allow_blank=True)
+    form_level = serializers.CharField(required=False)
     
     class Meta:
         model = Resource
         fields = [
-            'title', 'description', 'file', 'url', 'subject', 'tags', 'is_public'
+            'title', 'description', 'file', 'url', 'subject', 'form_level', 'is_public'
         ]
     
     def validate(self, attrs):
@@ -269,13 +269,13 @@ class ResourceListSerializer(serializers.ModelSerializer):
     subject_display = serializers.CharField(source='get_subject_display', read_only=True)
     file_extension = serializers.CharField(source='get_file_extension', read_only=True)
     file_size_display = serializers.CharField(source='get_file_size_display', read_only=True)
-    tags_list = serializers.ListField(source='get_tags_list', read_only=True)
+    form_level_display = serializers.CharField(source='get_form_level_display', read_only=True)
     
     class Meta:
         model = Resource
         fields = [
             'id', 'title', 'description', 'resource_type', 'subject', 'subject_display',
-            'uploaded_by_username', 'tags_list', 'is_public', 'download_count',
+            'uploaded_by_username', 'form_level', 'form_level_display', 'is_public', 'download_count',
             'file_extension', 'file_size_display', 'created_at'
         ]
 

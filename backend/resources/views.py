@@ -27,8 +27,8 @@ class ResourceListCreateView(generics.ListCreateAPIView):
     """
     permission_classes = [IsAuthenticated, IsTeacherOrReadOnly]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['subject', 'resource_type', 'is_public', 'uploaded_by']
-    search_fields = ['title', 'description', 'tags']
+    filterset_fields = ['subject', 'resource_type', 'form_level', 'is_public', 'uploaded_by']
+    search_fields = ['title', 'description']
     ordering_fields = ['created_at', 'title', 'download_count']
     ordering = ['-created_at']
     
@@ -134,13 +134,13 @@ class ResourceRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
 class ResourceListView(generics.ListAPIView):
     """
     List all resources with pagination and filtering.
-    Supports search by title, description, subject, and tags.
+    Supports search by title, description, subject, and form level.
     """
     serializer_class = ResourceListSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['subject', 'resource_type', 'is_public', 'uploaded_by']
-    search_fields = ['title', 'description', 'tags']
+    filterset_fields = ['subject', 'resource_type', 'form_level', 'is_public', 'uploaded_by']
+    search_fields = ['title', 'description']
     ordering_fields = ['created_at', 'title', 'download_count']
     ordering = ['-created_at']
     
@@ -272,8 +272,8 @@ class ResourceSearchView(generics.ListAPIView):
     serializer_class = ResourceListSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['subject', 'resource_type', 'is_public', 'uploaded_by']
-    search_fields = ['title', 'description', 'tags']
+    filterset_fields = ['subject', 'resource_type', 'form_level', 'is_public', 'uploaded_by']
+    search_fields = ['title', 'description']
     ordering_fields = ['created_at', 'title', 'download_count', 'views_count']
     ordering = ['-created_at']
     
@@ -297,8 +297,7 @@ class ResourceSearchView(generics.ListAPIView):
             if query:
                 queryset = queryset.filter(
                     Q(title__icontains=query) |
-                    Q(description__icontains=query) |
-                    Q(tags__icontains=query)
+                    Q(description__icontains=query)
                 )
             
             # Subject filter
@@ -321,12 +320,10 @@ class ResourceSearchView(generics.ListAPIView):
             if uploaded_by:
                 queryset = queryset.filter(uploaded_by_id=uploaded_by)
             
-            # Tags filter
-            tags = data.get('tags')
-            if tags:
-                tag_list = [tag.strip() for tag in tags.split(',') if tag.strip()]
-                for tag in tag_list:
-                    queryset = queryset.filter(tags__icontains=tag)
+            # Form level filter
+            form_level = data.get('form_level')
+            if form_level:
+                queryset = queryset.filter(form_level=form_level)
             
             # Date range filter
             date_from = data.get('date_from')
