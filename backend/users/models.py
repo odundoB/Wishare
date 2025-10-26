@@ -16,6 +16,30 @@ class User(AbstractUser):
         help_text='User role in the system'
     )
     
+    # Student-specific fields
+    admission_number = models.CharField(
+        max_length=50,
+        unique=True,
+        blank=True,
+        null=True,
+        help_text='Student admission number (for students only)'
+    )
+    
+    # Teacher-specific fields
+    department = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text='Primary department (for teachers only)'
+    )
+    
+    department_secondary = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text='Secondary department (for teachers only)'
+    )
+    
     profile_photo = models.ImageField(
         upload_to='profile_photos/',
         blank=True,

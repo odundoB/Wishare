@@ -3,8 +3,9 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import { Container } from 'react-bootstrap'
 import Navbar from './components/Navbar'
 import LandingPage from './pages/LandingPage'
-import Login from './pages/Login'
-import Register from './pages/Register'
+import AuthPage from './pages/AuthPage'
+import ApiTestPage from './pages/ApiTestPage'
+import PasswordTestPage from './pages/PasswordTestPage'
 import Dashboard from './pages/Dashboard'
 import TeacherDashboard from './pages/TeacherDashboard'
 import StudentDashboard from './pages/StudentDashboard'
@@ -28,8 +29,11 @@ function App() {
           <Container fluid className="main-content">
             <Routes>
               <Route path="/" element={<LandingPage />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
+              <Route path="/auth" element={<AuthPage />} />
+              <Route path="/login" element={<AuthPage />} />
+              <Route path="/register" element={<AuthPage />} />
+              <Route path="/api-test" element={<ApiTestPage />} />
+              <Route path="/password-test" element={<PasswordTestPage />} />
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/teacher-dashboard" element={<TeacherDashboard />} />
               <Route path="/student-dashboard" element={<StudentDashboard />} />

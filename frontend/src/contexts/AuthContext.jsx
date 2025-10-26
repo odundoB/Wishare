@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
-import { authAPI } from '../services/api'
+import { authAPI, userAPI } from '../services/api'
 import { registerUser, loginUser, logoutUser, getProfile, updateProfile } from '../services/users'
 import { tokenManager } from '../utils/tokenManager'
 
@@ -72,7 +72,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (credentials) => {
     try {
-      const response = await authAPI.login(credentials)
+      const response = await userAPI.login(credentials)
       const { access, refresh } = response.data
       
       // Store tokens directly - simple approach

@@ -3,7 +3,7 @@ import { tokenManager } from '../utils/tokenManager'
 
 // Create reusable axios instance with automatic backend connection
 const api = axios.create({
-  baseURL: 'http://127.0.0.1:8001/api',
+  baseURL: 'http://127.0.0.1:8000/api',
   headers: {
     'Content-Type': 'application/json',
   },

@@ -11,15 +11,24 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     Handles username, email, password, and role validation.
     """
     password = serializers.CharField(write_only=True, validators=[validate_password])
-    password_confirm = serializers.CharField(write_only=True)
+    confirm_password = serializers.CharField(write_only=True)
+    middle_name = serializers.CharField(required=False, allow_blank=True)
+    surname = serializers.CharField(required=False, allow_blank=True)
     
     class Meta:
         model = User
-        fields = ('username', 'email', 'password', 'password_confirm', 'role', 'first_name', 'last_name')
+        fields = (
+            'username', 'email', 'password', 'confirm_password', 'role', 
+            'first_name', 'middle_name', 'surname', 'last_name',
+            'admission_number', 'department', 'department_secondary'
+        )
         extra_kwargs = {
             'email': {'required': True},
-            'first_name': {'required': False},
+            'first_name': {'required': True},
             'last_name': {'required': False},
+            'admission_number': {'required': False},
+            'department': {'required': False},
+            'department_secondary': {'required': False},
         }
     
     def validate_email(self, value):
@@ -35,14 +44,33 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         return value
     
     def validate(self, attrs):
-        """Validate password confirmation."""
-        if attrs['password'] != attrs['password_confirm']:
+        """Validate password confirmation and role-specific fields."""
+        if attrs['password'] != attrs['confirm_password']:
             raise serializers.ValidationError("Passwords don't match.")
+        
+        role = attrs.get('role')
+        
+        # Validate student-specific fields
+        if role == 'student':
+            if not attrs.get('admission_number'):
+                raise serializers.ValidationError("Admission number is required for students.")
+        
+        # Validate teacher-specific fields  
+        if role == 'teacher':
+            if not attrs.get('department'):
+                raise serializers.ValidationError("Primary department is required for teachers.")
+        
+        # Set last_name from surname if provided
+        if attrs.get('surname'):
+            attrs['last_name'] = attrs['surname']
+        
         return attrs
     
     def create(self, validated_data):
         """Create a new user with hashed password."""
-        validated_data.pop('password_confirm')
+        validated_data.pop('confirm_password')
+        validated_data.pop('middle_name', None)  # Remove middle_name as it's not a User field
+        validated_data.pop('surname', None)     # Remove surname as we already set last_name
         user = User.objects.create_user(**validated_data)
         return user
 
