@@ -30,8 +30,21 @@ class EventListCreateView(generics.ListCreateAPIView):
     ordering = ['start_time']  # Upcoming events first
     
     def get_queryset(self):
-        """Get events with proper ordering (upcoming first)."""
+        """Get events with proper ordering and filtering."""
         queryset = Event.objects.select_related('created_by').all()
+        
+        # Filter by status if provided
+        status = self.request.query_params.get('status')
+        if status:
+            from django.utils import timezone
+            now = timezone.now()
+            
+            if status == 'upcoming':
+                queryset = queryset.filter(start_time__gt=now)
+            elif status == 'ongoing':
+                queryset = queryset.filter(start_time__lte=now, end_time__gte=now)
+            elif status == 'past':
+                queryset = queryset.filter(end_time__lt=now)
         
         # Order by start_time (upcoming first)
         return queryset.order_by('start_time')

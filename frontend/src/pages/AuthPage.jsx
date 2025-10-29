@@ -184,6 +184,14 @@ const AuthPage = () => {
       })
       
       if (result.success) {
+        // Check if the authenticated user is actually a student
+        if (result.data.role !== 'student') {
+          // This user is not a student - deny access and clear tokens
+          localStorage.removeItem('access_token')
+          localStorage.removeItem('refresh_token')
+          setError(`Access Denied: The account "${studentLoginData.admission_number}" belongs to a ${result.data.role}. Students must use their admission number to login.`)
+          return
+        }
         navigate('/dashboard')
       } else {
         setError(result.error || 'Login failed')
@@ -247,6 +255,14 @@ const AuthPage = () => {
       })
       
       if (result.success) {
+        // Check if the authenticated user is actually a teacher
+        if (result.data.role !== 'teacher') {
+          // This user is not a teacher - deny access and clear tokens
+          localStorage.removeItem('access_token')
+          localStorage.removeItem('refresh_token')
+          setError(`Access Denied: The account "${teacherLoginData.first_name}" belongs to a ${result.data.role}. Teachers must use their first name to login.`)
+          return
+        }
         navigate('/dashboard')
       } else {
         setError(result.error || 'Login failed')

@@ -31,6 +31,15 @@ const Events = () => {
     fetchEvents()
   }, [currentPage, selectedStatus, sortBy, sortOrder, searchQuery])
 
+  // Add debounced search to avoid too many API calls
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setCurrentPage(1)
+    }, 300) // 300ms delay after user stops typing
+
+    return () => clearTimeout(timer)
+  }, [searchQuery])
+
   const fetchEvents = async () => {
     try {
       setLoading(true)
@@ -74,16 +83,26 @@ const Events = () => {
     fetchEvents()
   }
 
+  const handleClearSearch = () => {
+    setSearchQuery('')
+    setCurrentPage(1)
+  }
+
   const handleCreate = async (formData) => {
     try {
       setCreating(true)
       setError('')
       
-      console.log('Creating event with data:', formData)
-      const response = await createEvent(formData)
-      console.log('Event creation response:', response)
+      if (selectedEvent) {
+        // Editing existing event
+        await updateEvent(selectedEvent.id, formData)
+      } else {
+        // Creating new event
+        await createEvent(formData)
+      }
       
       setShowCreateModal(false)
+      setSelectedEvent(null)
       fetchEvents()
       
     } catch (err) {
@@ -92,7 +111,7 @@ const Events = () => {
       console.error('Error status:', err.response?.status)
       console.error('Error headers:', err.response?.headers)
       
-      let errorMessage = 'Failed to create event'
+      let errorMessage = selectedEvent ? 'Failed to update event' : 'Failed to create event'
       
       if (err.response?.data) {
         if (typeof err.response.data === 'string') {
@@ -167,16 +186,16 @@ const Events = () => {
   }
 
   const handleEdit = (event) => {
-    // TODO: Implement event edit functionality
-    // Edit event
+    setSelectedEvent(event)
+    setShowCreateModal(true)
   }
 
   const canEditEvent = (event) => {
-    return user && (user.id === event.created_by || user.is_staff)
+    return user && (user.id === event.created_by_id || user.is_staff)
   }
 
   const canDeleteEvent = (event) => {
-    return user && (user.id === event.created_by || user.is_staff)
+    return user && (user.id === event.created_by_id || user.is_staff)
   }
 
   const getEventStats = () => {
@@ -251,6 +270,7 @@ const Events = () => {
         sortOrder={sortOrder}
         setSortOrder={setSortOrder}
         onSearch={handleSearch}
+        onClearSearch={handleClearSearch}
       />
 
       {/* Stats */}
@@ -261,6 +281,24 @@ const Events = () => {
         pastCount={stats.past}
         totalAttendees={stats.totalAttendees}
       />
+
+      {/* Search Results Indicator */}
+      {searchQuery && (
+        <div className="mb-3">
+          <small className="text-muted">
+            Showing results for: "<strong>{searchQuery}</strong>" 
+            ({totalCount} event{totalCount !== 1 ? 's' : ''} found)
+            <Button 
+              variant="link" 
+              size="sm" 
+              onClick={handleClearSearch}
+              className="p-0 ms-2"
+            >
+              Clear search
+            </Button>
+          </small>
+        </div>
+      )}
 
       {/* Events List */}
       {loading ? (
@@ -345,9 +383,13 @@ const Events = () => {
       {/* Create Event Modal */}
       <EventCreateModal
         show={showCreateModal}
-        onHide={() => setShowCreateModal(false)}
+        onHide={() => {
+          setShowCreateModal(false)
+          setSelectedEvent(null)
+        }}
         onSubmit={handleCreate}
         loading={creating}
+        event={selectedEvent}
       />
 
       {/* Delete Confirmation Modal */}

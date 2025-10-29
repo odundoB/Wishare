@@ -114,7 +114,9 @@ const ResourceCard = ({
 
         <div className="d-flex justify-content-between align-items-center text-muted small">
           <div>
-            👤 {resource.uploaded_by?.username || 'Unknown'}
+            👤 {resource.uploaded_by_username ? 
+              `${resource.uploaded_by_username}${resource.uploaded_by_id ? ` (ID: ${resource.uploaded_by_id})` : ''}` : 
+              (resource.uploaded_by_id ? `User ID: ${resource.uploaded_by_id}` : 'Unknown User')}
           </div>
           <div>
             📅 {formatDate(resource.created_at)}

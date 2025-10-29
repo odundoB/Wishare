@@ -1,16 +1,12 @@
 import React from 'react'
-import { Card, Badge, Button, Dropdown } from 'react-bootstrap'
+import { Card, Badge, Dropdown } from 'react-bootstrap'
 
 const EventCard = ({ 
   event, 
-  onView, 
   onEdit, 
   onDelete, 
-  onRegister,
-  onUnregister,
   canEdit, 
-  canDelete,
-  isRegistered = false
+  canDelete
 }) => {
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -57,7 +53,7 @@ const EventCard = ({
   const eventStatus = getEventStatus(event.start_time, event.end_time)
 
   return (
-    <Card className="h-100 shadow-sm">
+    <Card className="h-100 shadow-sm" style={{ position: 'relative' }}>
       <Card.Body>
         <div className="d-flex justify-content-between align-items-start mb-2">
           <div className="d-flex align-items-center">
@@ -71,38 +67,28 @@ const EventCard = ({
               <Badge bg="warning">Private</Badge>
             )}
           </div>
-          <Dropdown>
-            <Dropdown.Toggle variant="outline-secondary" size="sm">
-              ⋮
-            </Dropdown.Toggle>
-            <Dropdown.Menu>
-              <Dropdown.Item onClick={() => onView(event)}>
-                👁️ View Details
-              </Dropdown.Item>
-              {isRegistered ? (
-                <Dropdown.Item onClick={() => onUnregister(event)}>
-                  ❌ Unregister
-                </Dropdown.Item>
-              ) : (
-                <Dropdown.Item onClick={() => onRegister(event)}>
-                  ✅ Register
-                </Dropdown.Item>
-              )}
-              {canEdit && (
-                <Dropdown.Item onClick={() => onEdit(event)}>
-                  ✏️ Edit
-                </Dropdown.Item>
-              )}
-              {canDelete && (
-                <Dropdown.Item 
-                  className="text-danger"
-                  onClick={() => onDelete(event)}
-                >
-                  🗑️ Delete
-                </Dropdown.Item>
-              )}
-            </Dropdown.Menu>
-          </Dropdown>
+          {(canEdit || canDelete) && (
+            <Dropdown align="end">
+              <Dropdown.Toggle variant="outline-secondary" size="sm">
+                ⋮
+              </Dropdown.Toggle>
+              <Dropdown.Menu style={{ zIndex: 1050 }}>
+                {canEdit && (
+                  <Dropdown.Item onClick={() => onEdit(event)}>
+                    ✏️ Edit
+                  </Dropdown.Item>
+                )}
+                {canDelete && (
+                  <Dropdown.Item 
+                    className="text-danger"
+                    onClick={() => onDelete(event)}
+                  >
+                    🗑️ Delete
+                  </Dropdown.Item>
+                )}
+              </Dropdown.Menu>
+            </Dropdown>
+          )}
         </div>
 
         <h6 className="card-title mb-2">{event.title}</h6>
@@ -130,44 +116,16 @@ const EventCard = ({
 
         <div className="d-flex justify-content-between align-items-center text-muted small mb-2">
           <div>
-            👤 {event.created_by?.username || 'Unknown'}
+            👤 {event.created_by_username ? 
+              `${event.created_by_username}${event.created_by ? ` (ID: ${event.created_by})` : ''}` : 
+              (event.created_by ? `User ID: ${event.created_by}` : 'Unknown User')}
           </div>
           <div>
             📅 {new Date(event.created_at).toLocaleDateString()}
           </div>
         </div>
 
-        <div className="d-flex justify-content-between align-items-center">
-          <div className="text-muted small">
-            👥 {event.attendees_count || 0} attendees
-          </div>
-          <div className="d-flex gap-1">
-            <Button
-              variant="outline-primary"
-              size="sm"
-              onClick={() => onView(event)}
-            >
-              👁️ View
-            </Button>
-            {isRegistered ? (
-              <Button
-                variant="outline-danger"
-                size="sm"
-                onClick={() => onUnregister(event)}
-              >
-                ❌ Unregister
-              </Button>
-            ) : (
-              <Button
-                variant="outline-success"
-                size="sm"
-                onClick={() => onRegister(event)}
-              >
-                ✅ Register
-              </Button>
-            )}
-          </div>
-        </div>
+
       </Card.Body>
     </Card>
   )

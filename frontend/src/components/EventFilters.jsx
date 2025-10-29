@@ -10,7 +10,8 @@ const EventFilters = ({
   setSortBy,
   sortOrder,
   setSortOrder,
-  onSearch
+  onSearch,
+  onClearSearch
 }) => {
   const statusOptions = [
     { value: '', label: 'All Events' },
@@ -22,8 +23,7 @@ const EventFilters = ({
   const sortOptions = [
     { value: 'start_time', label: 'Start Time' },
     { value: 'title', label: 'Title' },
-    { value: 'created_at', label: 'Created Date' },
-    { value: 'attendees_count', label: 'Attendees' }
+    { value: 'created_at', label: 'Created Date' }
   ]
 
   const handleFilterChange = (filterType, value) => {
@@ -47,7 +47,7 @@ const EventFilters = ({
   }
 
   return (
-    <Card className="mb-4">
+    <Card className="mb-4" style={{ position: 'relative', zIndex: 1000 }}>
       <Card.Body>
         <Row>
           <Col md={6}>
@@ -55,19 +55,29 @@ const EventFilters = ({
               <div className="input-group">
                 <Form.Control
                   type="text"
-                  placeholder="Search events..."
+                  placeholder="Search events by title, description, or location..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
                 <Button type="submit" variant="outline-secondary">
                   🔍
                 </Button>
+                {searchQuery && (
+                  <Button 
+                    type="button" 
+                    variant="outline-danger"
+                    onClick={onClearSearch}
+                    title="Clear search"
+                  >
+                    ✕
+                  </Button>
+                )}
               </div>
             </Form>
           </Col>
           <Col md={6}>
             <div className="d-flex gap-2 flex-wrap">
-              <Dropdown>
+              <Dropdown className="stable-dropdown">
                 <Dropdown.Toggle variant="outline-secondary" size="sm">
                   🔽 Status: {selectedStatus || 'All'}
                 </Dropdown.Toggle>
@@ -84,7 +94,7 @@ const EventFilters = ({
                 </Dropdown.Menu>
               </Dropdown>
 
-              <Dropdown>
+              <Dropdown className="stable-dropdown">
                 <Dropdown.Toggle variant="outline-secondary" size="sm">
                   ↕️ Sort: {sortOptions.find(opt => opt.value === sortBy)?.label}
                 </Dropdown.Toggle>

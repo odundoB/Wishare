@@ -5,7 +5,8 @@ const EventCreateModal = ({
   show, 
   onHide, 
   onSubmit, 
-  loading = false 
+  loading = false,
+  event = null 
 }) => {
   const [formData, setFormData] = useState({
     title: '',
@@ -15,18 +16,39 @@ const EventCreateModal = ({
     end_time: ''
   })
 
-  // Initialize form with default values when component mounts
+  // Initialize form with default values or event data when component mounts
   useEffect(() => {
     if (show) {
-      setFormData({
-        title: '',
-        description: '',
-        location: '',
-        start_time: getDefaultStartTime(),
-        end_time: getDefaultEndTime()
-      })
+      if (event) {
+        // Format dates for datetime-local input
+        const formatDateForInput = (dateString) => {
+          const date = new Date(dateString)
+          const year = date.getFullYear()
+          const month = String(date.getMonth() + 1).padStart(2, '0')
+          const day = String(date.getDate()).padStart(2, '0')
+          const hours = String(date.getHours()).padStart(2, '0')
+          const minutes = String(date.getMinutes()).padStart(2, '0')
+          return `${year}-${month}-${day}T${hours}:${minutes}`
+        }
+
+        setFormData({
+          title: event.title || '',
+          description: event.description || '',
+          location: event.location || '',
+          start_time: formatDateForInput(event.start_time),
+          end_time: formatDateForInput(event.end_time)
+        })
+      } else {
+        setFormData({
+          title: '',
+          description: '',
+          location: '',
+          start_time: getDefaultStartTime(),
+          end_time: getDefaultEndTime()
+        })
+      }
     }
-  }, [show])
+  }, [show, event])
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -149,7 +171,7 @@ const EventCreateModal = ({
     <Modal show={show} onHide={handleClose} size="lg">
       <Modal.Header closeButton>
         <Modal.Title>
-          📅 Create New Event
+          📅 {event ? 'Edit Event' : 'Create New Event'}
         </Modal.Title>
       </Modal.Header>
       <Form onSubmit={handleSubmit}>

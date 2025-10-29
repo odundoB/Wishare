@@ -14,6 +14,7 @@ class EventSerializer(serializers.ModelSerializer):
     """
     
     created_by = serializers.StringRelatedField(read_only=True)
+    created_by_id = serializers.SerializerMethodField()
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
     created_by_role = serializers.CharField(source='created_by.get_role_display', read_only=True)
     created_by_full_name = serializers.SerializerMethodField()
@@ -45,7 +46,7 @@ class EventSerializer(serializers.ModelSerializer):
             'start_time', 'end_time', 'created_by',
             'created_at', 'updated_at',
             # Additional fields
-            'created_by_username', 'created_by_role', 'created_by_full_name',
+            'created_by_id', 'created_by_username', 'created_by_role', 'created_by_full_name',
             'is_past', 'is_upcoming', 'is_ongoing', 'status_display',
             'duration', 'duration_display',
             'start_time_display', 'end_time_display',
@@ -53,6 +54,10 @@ class EventSerializer(serializers.ModelSerializer):
             'time_until_start', 'time_until_end'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at', 'created_by']
+    
+    def get_created_by_id(self, obj):
+        """Get the ID of the event creator."""
+        return obj.created_by.id if obj.created_by else None
     
     def get_created_by_full_name(self, obj):
         """Get the full name of the event creator."""
@@ -339,6 +344,7 @@ class EventListSerializer(serializers.ModelSerializer):
     Used when listing multiple events to reduce response size.
     """
     
+    created_by_id = serializers.SerializerMethodField()
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     duration_display = serializers.SerializerMethodField()
@@ -348,10 +354,14 @@ class EventListSerializer(serializers.ModelSerializer):
         model = Event
         fields = [
             'id', 'title', 'description', 'location',
-            'start_time', 'end_time', 'created_by_username',
+            'start_time', 'end_time', 'created_by_id', 'created_by_username',
             'status_display', 'duration_display', 'start_time_display',
             'created_at'
         ]
+    
+    def get_created_by_id(self, obj):
+        """Get the ID of the event creator."""
+        return obj.created_by.id if obj.created_by else None
     
     def get_duration_display(self, obj):
         """Get human-readable duration."""

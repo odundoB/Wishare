@@ -81,8 +81,8 @@ const ChatRoomInterface = ({ room, onBack }) => {
         id: msg.id,
         user: { 
           id: msg.user_id,
-          username: msg.user_username || 'System',
-          displayName: msg.user_name || msg.user_username || 'System',
+          username: msg.user_username || `User-${msg.user_id}`,
+          displayName: msg.user_name || msg.user_username || `User-${msg.user_id}` || 'System',
           role: msg.user_role || 'system' 
         },
         message: msg.message,
@@ -211,9 +211,6 @@ const ChatRoomInterface = ({ room, onBack }) => {
   // Handle file upload for public chat
   // Test function to verify upload API
   const testFileUpload = async () => {
-    console.log('=== TESTING FILE UPLOAD API ===');
-    
-    // Create a test file
     const testFile = new Blob(['This is a test file content'], { type: 'text/plain' });
     testFile.name = 'test.txt';
     
@@ -221,11 +218,8 @@ const ChatRoomInterface = ({ room, onBack }) => {
     formData.append('file', testFile);
     formData.append('file_type', 'document');
     
-    console.log('Test file created, calling API...');
-    
     try {
       const response = await chatAPI.sendFileMessage(room.id, formData);
-      console.log('Test upload successful:', response);
       alert('Test upload successful!');
     } catch (error) {
       console.error('Test upload failed:', error);
@@ -235,14 +229,8 @@ const ChatRoomInterface = ({ room, onBack }) => {
 
   const handleUploadFiles = async () => {
     if (selectedFiles.length === 0) {
-      console.log('No files selected for upload');
       return;
     }
-    
-    console.log('=== STARTING FILE UPLOAD ===');
-    console.log('Selected files:', selectedFiles);
-    console.log('Room object:', room);
-    console.log('User object:', user);
     
     // Check if user and room are available
     if (!user) {
@@ -357,8 +345,8 @@ const ChatRoomInterface = ({ room, onBack }) => {
         id: msg.id,
         user: { 
           id: msg.user_id,
-          username: msg.user_username || 'System',
-          displayName: msg.user_name || msg.user_username || 'System',
+          username: msg.user_username || `User-${msg.user_id}`,
+          displayName: msg.user_name || msg.user_username || `User-${msg.user_id}` || 'System',
           role: msg.user_role || 'system' 
         },
         message: msg.message,

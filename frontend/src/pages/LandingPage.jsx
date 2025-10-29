@@ -336,7 +336,7 @@ const LandingPage = () => {
             </Col>
             <Col md={6} className="text-md-end">
               <p className="text-light mb-0">
-                Made with <span className="text-danger">❤️</span> for education
+                Powered By TWIST OD
               </p>
             </Col>
           </Row>

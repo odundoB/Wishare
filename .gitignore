@@ -35,3 +35,13 @@ venv.bak/
 .settings
 .vscode/
 *.swp
+*.tmp
+*~
+
+# Test files
+test_*.py
+*.test.js
+
+# Build artifacts
+*.tar.gz
+*.zip
