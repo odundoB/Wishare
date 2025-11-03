@@ -40,11 +40,12 @@ class User(AbstractUser):
         help_text='Secondary department (for teachers only)'
     )
     
-    profile_photo = models.ImageField(
-        upload_to='profile_photos/',
+    # Temporarily using CharField instead of ImageField until Pillow is installed
+    profile_photo = models.CharField(
+        max_length=255,
         blank=True,
         null=True,
-        help_text='Profile photo of the user'
+        help_text='Profile photo path (temporary workaround)'
     )
     
     def __str__(self):
@@ -117,11 +118,12 @@ class StudentProfile(models.Model):
         help_text='Short biography or description of the student'
     )
     
-    profile_picture = models.ImageField(
-        upload_to='profile_pics/',
+    # Temporarily using CharField instead of ImageField until Pillow is installed
+    profile_picture = models.CharField(
+        max_length=255,
         blank=True,
         null=True,
-        help_text='Profile picture of the student'
+        help_text='Profile picture path (temporary workaround)'
     )
     
     department = models.CharField(

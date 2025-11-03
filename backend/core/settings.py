@@ -89,16 +89,26 @@ ASGI_APPLICATION = 'core.asgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+# Temporary SQLite configuration for development
+# Switch back to PostgreSQL when psycopg2-binary is properly installed
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'wishare_db',
-        'USER': 'postgres',
-        'PASSWORD': 'leakey001',
-        'HOST': 'localhost',
-        'PORT': '5432',
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
+
+# PostgreSQL configuration (commented out for now)
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': 'wishare_db',
+#         'USER': 'postgres',
+#         'PASSWORD': 'leakey001',
+#         'HOST': 'localhost',
+#         'PORT': '5432',
+#     }
+# }
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -263,11 +273,19 @@ CORS_ALLOW_HEADERS = [
 ]
 
 # Channels Configuration
+# Using in-memory channel layer for development (no Redis required)
 CHANNEL_LAYERS = {
     'default': {
-        'BACKEND': 'channels_redis.core.RedisChannelLayer',
-        'CONFIG': {
-            "hosts": [('127.0.0.1', 6379)],
-        },
+        'BACKEND': 'channels.layers.InMemoryChannelLayer',
     },
 }
+
+# Redis channel layer configuration (commented out until Redis/msgpack issues are resolved)
+# CHANNEL_LAYERS = {
+#     'default': {
+#         'BACKEND': 'channels_redis.core.RedisChannelLayer',
+#         'CONFIG': {
+#             "hosts": [('127.0.0.1', 6379)],
+#         },
+#     },
+# }
